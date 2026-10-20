@@ -1,0 +1,4 @@
+# LF everywhere like the Godot repository (engine/rdg-engine.patch must stay LF for git apply), CRLF for batch files.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary

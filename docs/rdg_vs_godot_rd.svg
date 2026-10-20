@@ -1,0 +1,235 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1190" viewBox="0 0 1400 1190" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif">
+  <defs>
+    <!-- UE RDG Compile 阶段（核心）：royal-blue 横纹 -->
+    <pattern id="rdg-compile-bg" patternUnits="userSpaceOnUse" width="10" height="10">
+      <rect width="10" height="10" fill="#dbeafe"/>
+      <rect y="1" width="10" height="2" fill="#2563eb" opacity="0.28022"/>
+      <rect y="6" width="10" height="1.5" fill="#2563eb" opacity="0.28022"/>
+    </pattern>
+    <!-- Godot RenderingDeviceGraph（核心）：amber 横纹 -->
+    <pattern id="rd-graph-bg" patternUnits="userSpaceOnUse" width="10" height="10">
+      <rect width="10" height="10" fill="#fef3c7"/>
+      <rect y="1" width="10" height="2" fill="#d97706" opacity="0.264249"/>
+      <rect y="6" width="10" height="1.5" fill="#d97706" opacity="0.264249"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#64748b"/>
+    </marker>
+    <style>
+      .title { font-size: 26px; font-weight: 700; fill: #0f172a; }
+      .col-title { font-size: 20px; font-weight: 700; }
+      .ue { fill: #1d4ed8; }
+      .gd { fill: #b45309; }
+      .col-sub { font-size: 13px; fill: #475569; }
+      .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.2; }
+      .ue-box { stroke: #93c5fd; }
+      .gd-box { stroke: #fcd34d; }
+      .rdg-compile { fill: url(#rdg-compile-bg); stroke: #2563eb; stroke-width: 2; }
+      .rd-graph { fill: url(#rd-graph-bg); stroke: #d97706; stroke-width: 2; }
+      .h { font-size: 15px; font-weight: 700; fill: #0f172a; }
+      .tag { font-size: 12px; fill: #64748b; }
+      .t { font-size: 13px; fill: #1e293b; }
+      .mono { font-family: Consolas, Menlo, monospace; font-size: 12.5px; fill: #334155; }
+      .flow { stroke: #64748b; stroke-width: 1.6; marker-end: url(#arrow); }
+      .sec { font-size: 18px; font-weight: 700; fill: #0f172a; }
+      .th { font-size: 14px; font-weight: 700; fill: #0f172a; }
+      .td { font-size: 13px; fill: #1e293b; }
+      .dim { font-size: 13px; font-weight: 700; fill: #334155; }
+      .row-a { fill: #ffffff; }
+      .row-b { fill: #f1f5f9; }
+      .th-ue { fill: #dbeafe; }
+      .th-gd { fill: #fef3c7; }
+      .th-proj { fill: #dcfce7; }
+      .th-dim { fill: #e2e8f0; }
+      .grid { fill: none; stroke: #cbd5e1; stroke-width: 1; }
+      .yes { fill: #16a34a; }
+      .part { fill: #d97706; }
+      .no { fill: #dc2626; }
+      .na { fill: #94a3b8; }
+      .note { font-size: 12px; fill: #64748b; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="1190" fill="#f8fafc"/>
+  <text x="700" y="44" text-anchor="middle" class="title">UE RDG 与 Godot 原生 RenderingDevice 的差别</text>
+
+  <!-- ===== 左列：UE RDG ===== -->
+  <text x="360" y="82" text-anchor="middle" class="col-title ue">UE 5 · Render Dependency Graph</text>
+  <text x="360" y="104" text-anchor="middle" class="col-sub">声明式：Setup → Compile → Execute，先建好整帧的图再执行</text>
+
+  <rect x="40" y="120" width="640" height="78" rx="8" class="box ue-box"/>
+  <text x="58" y="144" class="h">渲染器代码</text>
+  <text x="662" y="144" text-anchor="end" class="tag">FDeferredShadingSceneRenderer 等</text>
+  <text x="58" y="166" class="mono">GraphBuilder.AddPass(Name, PassParameters, Flags, Lambda)</text>
+  <text x="58" y="186" class="t">只声明 pass 和资源访问，lambda 此时不执行</text>
+  <line x1="360" y1="198" x2="360" y2="220" class="flow"/>
+
+  <rect x="40" y="222" width="640" height="98" rx="8" class="box ue-box"/>
+  <text x="58" y="246" class="h">FRDGBuilder · Setup</text>
+  <text x="58" y="268" class="t">CreateTexture / CreateBuffer：返回虚拟资源句柄，不分配显存</text>
+  <text x="58" y="288" class="t">参数结构体 SHADER_PARAMETER_RDG_* / RENDER_TARGET_BINDING_SLOTS</text>
+  <text x="58" y="308" class="t">→ 每个 pass 的读写集合显式已知，构成 pass 级 DAG</text>
+  <line x1="360" y1="320" x2="360" y2="342" class="flow"/>
+
+  <rect x="40" y="344" width="640" height="138" rx="8" class="rdg-compile"/>
+  <text x="58" y="368" class="h">FRDGBuilder · Compile（整帧全局视角）</text>
+  <text x="58" y="390" class="t">Pass 剔除：输出无人读取的 pass 直接丢弃</text>
+  <text x="58" y="410" class="t">生命周期：瞬态资源首次使用时分配、最后一次使用后释放</text>
+  <text x="58" y="430" class="t">Transient Heap 显存别名 + 按 pass 精确计算的 aliasing fence</text>
+  <text x="58" y="450" class="t">合并相同 RT 的 raster pass；规划 async compute fork / join</text>
+  <text x="58" y="470" class="t">预计算子资源级 transition，批量提交 barrier</text>
+  <line x1="360" y1="482" x2="360" y2="504" class="flow"/>
+
+  <rect x="40" y="506" width="640" height="78" rx="8" class="box ue-box"/>
+  <text x="58" y="530" class="h">FRDGBuilder · Execute</text>
+  <text x="58" y="552" class="t">按 pass 顺序调用 lambda，多线程并行录制 FRHICommandList</text>
+  <text x="58" y="572" class="t">在 pass 之间插入 Compile 阶段算好的 barrier</text>
+  <line x1="360" y1="584" x2="360" y2="606" class="flow"/>
+
+  <rect x="40" y="608" width="640" height="60" rx="8" class="box ue-box"/>
+  <text x="58" y="632" class="h">RHI 线程 → D3D12 / Vulkan / Metal</text>
+  <text x="58" y="654" class="t">Graphics 队列 + AsyncCompute 队列</text>
+
+  <!-- ===== 右列：Godot RD ===== -->
+  <text x="1040" y="82" text-anchor="middle" class="col-title gd">Godot 4.6 · RenderingDevice（原生）</text>
+  <text x="1040" y="104" text-anchor="middle" class="col-sub">命令式：调用即录制，由 RenderingDeviceGraph 在命令级自动同步</text>
+
+  <rect x="720" y="120" width="640" height="78" rx="8" class="box gd-box"/>
+  <text x="738" y="144" class="h">渲染器代码</text>
+  <text x="1342" y="144" text-anchor="end" class="tag">RendererSceneRenderRD / CompositorEffect</text>
+  <text x="738" y="166" class="mono">rd-&gt;compute_list_begin(); … dispatch(); compute_list_end();</text>
+  <text x="738" y="186" class="t">调用即录制，没有“先建图后执行”的 Setup 阶段</text>
+  <line x1="1040" y1="198" x2="1040" y2="220" class="flow"/>
+
+  <rect x="720" y="222" width="640" height="98" rx="8" class="box gd-box"/>
+  <text x="738" y="246" class="h">RenderingDevice API</text>
+  <text x="738" y="268" class="t">texture_create / storage_buffer_create：立即分配真实 RID 和显存</text>
+  <text x="738" y="288" class="t">uniform_set_create：按 set / binding 编号手工组装</text>
+  <text x="738" y="308" class="t">资源生命周期由调用者 free_rid 管理（延迟到帧回收）</text>
+  <line x1="1040" y1="320" x2="1040" y2="342" class="flow"/>
+
+  <rect x="720" y="344" width="640" height="138" rx="8" class="rd-graph"/>
+  <text x="738" y="368" class="h">RenderingDeviceGraph（命令级图，4.3 起）</text>
+  <text x="738" y="390" class="t">从每条命令用到的 RID 推导依赖（读 / 写 / layout）</text>
+  <text x="738" y="410" class="t">自动插 barrier，追踪子资源（mip / layer）的 layout</text>
+  <text x="738" y="430" class="t">无依赖的命令分层、重排，合并同层 barrier</text>
+  <text x="738" y="450" class="t">看不到 pass 的意图：不剔除、不做显存别名、不合并 render pass</text>
+  <text x="738" y="470" class="t">录进来的命令全部执行，资源显存整帧常驻</text>
+  <line x1="1040" y1="482" x2="1040" y2="504" class="flow"/>
+
+  <rect x="720" y="506" width="640" height="78" rx="8" class="box gd-box"/>
+  <text x="738" y="530" class="h">帧末提交</text>
+  <text x="738" y="552" class="t">渲染线程单线程录制</text>
+  <text x="738" y="572" class="t">图在提交时翻译成命令缓冲，一次提交</text>
+  <line x1="1040" y1="584" x2="1040" y2="606" class="flow"/>
+
+  <rect x="720" y="608" width="640" height="60" rx="8" class="box gd-box"/>
+  <text x="738" y="632" class="h">RenderingDeviceDriver → Vulkan / D3D12 / Metal</text>
+  <text x="738" y="654" class="t">只有 Graphics 队列（没有 async compute 队列）</text>
+
+  <!-- ===== 能力对照表 ===== -->
+  <text x="40" y="716" class="sec">能力对照</text>
+  <text x="1360" y="716" text-anchor="end" class="note">第 4 列是本项目 modules/rdg 在 Godot RD 之上补齐的部分</text>
+
+  <rect x="40" y="730" width="190" height="34" class="th-dim"/>
+  <rect x="230" y="730" width="380" height="34" class="th-ue"/>
+  <rect x="610" y="730" width="380" height="34" class="th-gd"/>
+  <rect x="990" y="730" width="370" height="34" class="th-proj"/>
+  <text x="56" y="752" class="th">维度</text>
+  <text x="246" y="752" class="th">UE RDG</text>
+  <text x="626" y="752" class="th">Godot 原生 RD</text>
+  <text x="1006" y="752" class="th">GodotRDG（本项目）</text>
+
+  <!-- 行背景：每行 30px，起点 764 -->
+  <rect x="40" y="764" width="1320" height="30" class="row-a"/>
+  <rect x="40" y="794" width="1320" height="30" class="row-b"/>
+  <rect x="40" y="824" width="1320" height="30" class="row-a"/>
+  <rect x="40" y="854" width="1320" height="30" class="row-b"/>
+  <rect x="40" y="884" width="1320" height="30" class="row-a"/>
+  <rect x="40" y="914" width="1320" height="30" class="row-b"/>
+  <rect x="40" y="944" width="1320" height="30" class="row-a"/>
+  <rect x="40" y="974" width="1320" height="30" class="row-b"/>
+  <rect x="40" y="1004" width="1320" height="30" class="row-a"/>
+  <rect x="40" y="1034" width="1320" height="30" class="row-b"/>
+  <rect x="40" y="1064" width="1320" height="30" class="row-a"/>
+  <rect x="40" y="1094" width="1320" height="30" class="row-b"/>
+
+  <!-- 表格线 -->
+  <rect x="40" y="730" width="1320" height="394" class="grid"/>
+  <line x1="230" y1="730" x2="230" y2="1124" class="grid"/>
+  <line x1="610" y1="730" x2="610" y2="1124" class="grid"/>
+  <line x1="990" y1="730" x2="990" y2="1124" class="grid"/>
+  <line x1="40" y1="764" x2="1360" y2="764" class="grid"/>
+
+  <!-- 文字基线 = 行顶 + 20；状态点圆心 = 行顶 + 15 -->
+  <g>
+    <!-- 1 图的粒度 -->
+    <text x="56" y="784" class="dim">图的粒度</text>
+    <circle cx="246" cy="779" r="5" class="na"/><text x="258" y="784" class="td">Pass 级，声明式</text>
+    <circle cx="626" cy="779" r="5" class="na"/><text x="638" y="784" class="td">命令级，命令式</text>
+    <circle cx="1006" cy="779" r="5" class="na"/><text x="1018" y="784" class="td">Pass 级 RDG 叠在 RD 命令图之上</text>
+    <!-- 2 资源分配 -->
+    <text x="56" y="814" class="dim">资源分配</text>
+    <circle cx="246" cy="809" r="5" class="yes"/><text x="258" y="814" class="td">虚拟资源，Compile 后才分配</text>
+    <circle cx="626" cy="809" r="5" class="no"/><text x="638" y="814" class="td">创建即分配真实 RID</text>
+    <circle cx="1006" cy="809" r="5" class="yes"/><text x="1018" y="814" class="td">虚拟资源 + RT 池 / transient heap</text>
+    <!-- 3 依赖来源 -->
+    <text x="56" y="844" class="dim">依赖来源</text>
+    <circle cx="246" cy="839" r="5" class="yes"/><text x="258" y="844" class="td">参数结构体显式声明读写</text>
+    <circle cx="626" cy="839" r="5" class="part"/><text x="638" y="844" class="td">从命令用到的 RID 推导</text>
+    <circle cx="1006" cy="839" r="5" class="yes"/><text x="1018" y="844" class="td">参数结构体（SPIR-V 反射按名绑定）</text>
+    <!-- 4 Pass 剔除 -->
+    <text x="56" y="874" class="dim">Pass 剔除</text>
+    <circle cx="246" cy="869" r="5" class="yes"/><text x="258" y="874" class="td">输出无人读取即剔除</text>
+    <circle cx="626" cy="869" r="5" class="no"/><text x="638" y="874" class="td">无，录进来的命令都执行</text>
+    <circle cx="1006" cy="869" r="5" class="yes"/><text x="1018" y="874" class="td">已实现，算法与 UE 一致</text>
+    <!-- 5 瞬态显存别名 -->
+    <text x="56" y="904" class="dim">瞬态显存别名</text>
+    <circle cx="246" cy="899" r="5" class="yes"/><text x="258" y="904" class="td">Transient heap + aliasing fence</text>
+    <circle cx="626" cy="899" r="5" class="no"/><text x="638" y="904" class="td">无 memory heap / placed 资源</text>
+    <circle cx="1006" cy="899" r="5" class="part"/><text x="1018" y="904" class="td">引擎补丁实现，依赖按整资源计算</text>
+    <!-- 6 Barrier -->
+    <text x="56" y="934" class="dim">Barrier</text>
+    <circle cx="246" cy="929" r="5" class="yes"/><text x="258" y="934" class="td">RDG 预计算，子资源粒度</text>
+    <circle cx="626" cy="929" r="5" class="yes"/><text x="638" y="934" class="td">RD 图自动插入，子资源粒度</text>
+    <circle cx="1006" cy="929" r="5" class="yes"/><text x="1018" y="934" class="td">交给 RD 图，不重复计算</text>
+    <!-- 7 命令重排 -->
+    <text x="56" y="964" class="dim">命令顺序</text>
+    <circle cx="246" cy="959" r="5" class="na"/><text x="258" y="964" class="td">保持 pass 提交顺序</text>
+    <circle cx="626" cy="959" r="5" class="yes"/><text x="638" y="964" class="td">无依赖命令分层重排</text>
+    <circle cx="1006" cy="959" r="5" class="na"/><text x="1018" y="964" class="td">由 RD 图决定，可能与提交顺序不同</text>
+    <!-- 8 RenderPass 合并 -->
+    <text x="56" y="994" class="dim">RenderPass 合并</text>
+    <circle cx="246" cy="989" r="5" class="yes"/><text x="258" y="994" class="td">相同 RT 的相邻 raster pass 合并</text>
+    <circle cx="626" cy="989" r="5" class="no"/><text x="638" y="994" class="td">需手动共用一个 draw list</text>
+    <circle cx="1006" cy="989" r="5" class="yes"/><text x="1018" y="994" class="td">已实现，CanMergeBefore 规则</text>
+    <!-- 9 Async Compute -->
+    <text x="56" y="1024" class="dim">Async Compute</text>
+    <circle cx="246" cy="1019" r="5" class="yes"/><text x="258" y="1024" class="td">fork / join，独立计算队列</text>
+    <circle cx="626" cy="1019" r="5" class="no"/><text x="638" y="1024" class="td">没有异步计算队列</text>
+    <circle cx="1006" cy="1019" r="5" class="yes"/><text x="1018" y="1024" class="td">引擎补丁：独立计算队列 + fork / join</text>
+    <!-- 10 并行录制 -->
+    <text x="56" y="1054" class="dim">并行录制</text>
+    <circle cx="246" cy="1049" r="5" class="yes"/><text x="258" y="1054" class="td">多线程录制命令列表</text>
+    <circle cx="626" cy="1049" r="5" class="no"/><text x="638" y="1054" class="td">渲染线程单线程</text>
+    <circle cx="1006" cy="1049" r="5" class="no"/><text x="1018" y="1054" class="td">未实现</text>
+    <!-- 11 跨帧 / 外部资源 -->
+    <text x="56" y="1084" class="dim">跨帧 / 外部资源</text>
+    <circle cx="246" cy="1079" r="5" class="yes"/><text x="258" y="1084" class="td">QueueExtraction / RegisterExternal</text>
+    <circle cx="626" cy="1079" r="5" class="part"/><text x="638" y="1084" class="td">调用者手动持有和释放 RID</text>
+    <circle cx="1006" cy="1079" r="5" class="yes"/><text x="1018" y="1084" class="td">已实现，同名 API</text>
+    <!-- 12 调试 -->
+    <text x="56" y="1114" class="dim">调试与校验</text>
+    <circle cx="246" cy="1109" r="5" class="yes"/><text x="258" y="1114" class="td">RDG Validation、Insights、DumpGraph</text>
+    <circle cx="626" cy="1109" r="5" class="part"/><text x="638" y="1114" class="td">RD label + Vulkan 校验层</text>
+    <circle cx="1006" cy="1109" r="5" class="yes"/><text x="1018" y="1114" class="td">UE 原文校验报错 + .dot 导出</text>
+  </g>
+
+  <!-- 图例 -->
+  <circle cx="46" cy="1152" r="5" class="yes"/><text x="58" y="1157" class="note">支持</text>
+  <circle cx="106" cy="1152" r="5" class="part"/><text x="118" y="1157" class="note">部分 / 替代方案</text>
+  <circle cx="226" cy="1152" r="5" class="no"/><text x="238" y="1157" class="note">不支持</text>
+  <circle cx="298" cy="1152" r="5" class="na"/><text x="310" y="1157" class="note">中性描述</text>
+  <rect x="400" y="1144" width="28" height="16" rx="3" class="rdg-compile"/><text x="436" y="1157" class="note">UE 的核心：pass 级全局编译</text>
+  <rect x="640" y="1144" width="28" height="16" rx="3" class="rd-graph"/><text x="676" y="1157" class="note">Godot 的核心：命令级自动同步</text>
+</svg>
