@@ -53,7 +53,7 @@ Keep generated `.exr` and `.exr.import` files together with the `.lmbake` resour
 
 `./tools/validate-bvh.ps1` 运行 BVH 的暴力求交对照测试与四次顺序 GPU A/B。新准备流程默认 SAH，`prepare-sponza.ps1 -Bvh median` 保留旧方案。已有缓存可用 `python tools/triangle_bvh.py --method sah --output artifacts/bvh/sah` 单独构建备用加速数据，再用 `run-tg.ps1 -BvhDirectory artifacts/bvh/sah` 运行；完整 UV2/表面缓存无需重建。计时、固定射线 SH/截图等价性与结果在 `artifacts/bvh/`。
 
-所有交互演示支持按住右键转向、WASD 沿视线飞行、Space/Ctrl 升降、Shift 加速、滚轮前后移动；P 恢复观察预设。释放右键或失焦释放鼠标，捕获时 Esc 先释放、再按退出。盒体演示的正交预设仍使用滚轮缩放，右键自动切入透视。
+所有交互演示的相机按键与通用飞行相机（`%GODOT_SOURCE%\misc\shared_scripts\fly_camera.gd`）一致：按住右键转向，WASD 移动，E/Space 上升、Q 下降，Shift 加速，滚轮调移动速度；P 恢复观察预设。释放右键或失焦释放鼠标，捕获时 Esc 先释放、再按退出。盒体演示的正交俯视预设里滚轮缩放视野，右键自动切入透视。
 
 自由相机输入与 TG 非俯视角 GPU 集成检查：
 
@@ -62,7 +62,7 @@ $godot = & ./tools/resolve-godot.ps1
 & $godot --path . --rendering-driver vulkan --max-fps 60 --script tools/validate-free-camera.gd -- --tg
 ```
 
-键盘飞行只在窗口有系统焦点时生效（`FreeFlyCamera._process` 检查 `has_focus()`）：从后台进程启动、另一个程序占着前台时，Windows 的前台锁不给新窗口焦点，`fly_along_view` / `world_up` 会失败，重跑或启动后点一下窗口即可。检查右键捕获、转向、飞行、升降、加速、滚轮、焦点与 Esc 释放，以及预设恢复；旋转、平视、仰视和反向观察时验证 SH 有限与实际追踪。结果和截图在 `artifacts/free-camera/`，失败返回非零退出码。
+键盘飞行只在窗口有系统焦点时生效（`FreeFlyCamera._process` 检查 `has_focus()`）：从后台进程启动、另一个程序占着前台时，Windows 的前台锁不给新窗口焦点，键盘飞行各项会失败，重跑或启动后点一下窗口即可。检查右键捕获、转向、飞行、升降、加速、滚轮调速、移灯按键不动相机、焦点与 Esc 释放，以及预设恢复；旋转、平视、仰视和反向观察时验证 SH 有限与实际追踪。结果和截图在 `artifacts/free-camera/`，失败返回非零退出码。
 
 `./tools/run-tg.ps1` 打开 TG 风格的 Sponza 实时 GI。`-Capture` 输出 `artifacts/tg/` 下的截图、SH 调试数据、结果 JSON 与 `run.log`，检查屏幕/BVH 两种追踪、历史降噪、移灯、动态遮挡板、关灯归零、相机重投影和窗口缩放；功能断言或 Godot 错误都会使脚本失败。该路径只读取已准备的三角形 BVH 与材质，不读取 UV2 atlas 或预计算传输。详见 `docs/TG_SCREEN_GI.md`。
 
@@ -82,4 +82,4 @@ $godot = & ./tools/resolve-godot.ps1
 
 `./tools/run-emissive.ps1` 打开发光面演示；`./tools/validate.ps1 -Emissive` 追加自发光辐射量、近场重建及开关灯验证。演示捕获包括固定俯视全景和 `emissive_detail.png` 近景。直接启动项目时传入 `--coarse-emitter-receivers` 可关闭近发光体墙面的局部细化，用于同参数 A/B。
 
-`./tools/run-ball.ps1` 打开可控制的自发光球：方向键移动、Q/Z 升降、Shift 加速、R 复位小球、C 改色、E 开关、+/- 强度；相机使用上述自由观察控制。`./tools/validate.ps1 -Ball` 增加球形辐射/遮挡 GPU 测试与输入、移动、碰撞、变色和开关回归。球模式的原生 VoxelGI / LightmapGI 快捷键禁用，避免静态对照误用于动态光源。
+`./tools/run-ball.ps1` 打开可控制的自发光球：方向键移动、PgUp/PgDn 升降、Shift 加速、R 复位小球、C 改色、T 开关、+/- 强度；相机使用上述自由观察控制。`./tools/validate.ps1 -Ball` 增加球形辐射/遮挡 GPU 测试与输入、移动、碰撞、变色和开关回归。球模式的原生 VoxelGI / LightmapGI 快捷键禁用，避免静态对照误用于动态光源。

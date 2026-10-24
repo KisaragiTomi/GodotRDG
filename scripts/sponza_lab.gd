@@ -309,12 +309,12 @@ func _update_status() -> void:
 	if tg != null:
 		var names := ["DIRECT / NO GI", "TG-STYLE / SCREEN + BVH + SH", "TG-STYLE / BVH ONLY + SH", "TG-STYLE / INDIRECT (BVH)", "TG-STYLE / NO TEMPORAL HISTORY"]
 		if atmosphere != null and atmosphere.environment.volumetric_fog_enabled: names[1] = "TG-STYLE / CLEAN SCREEN + BVH + ATMOSPHERE" if separate_surface_fog else "TG-STYLE / BVH + ATMOSPHERE"
-		status.text = "Sponza | %s | %s | %s\n1 Direct  2 TG  3 BVH  4 Indirect  5 No history  6 Sampling  7 Denoise  B Blocker\nHold RMB Look  WASD Fly  Space/Ctrl Up/Down  Shift Fast  Wheel Dolly\nArrows/Q/Z Move lamp  L Lamp  R Reset  P Preset  Esc Release/Close" % [names[mode], ["SPARSE 4x4 / 1 RAY", "QUALITY 2/4/8 RAYS", "REFERENCE 32 RAYS", "ADAPTIVE 4x4 / MAX +50%"][tg_sampling], "POST DENOISE" if tg_post_denoise else "BASIC FILTER"]
+		status.text = "Sponza | %s | %s | %s\n1 Direct  2 TG  3 BVH  4 Indirect  5 No history  6 Sampling  7 Denoise  B Blocker\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed\nArrows/PgUp/PgDn Move lamp  L Lamp  R Reset  P Preset  Esc Release/Close" % [names[mode], ["SPARSE 4x4 / 1 RAY", "QUALITY 2/4/8 RAYS", "REFERENCE 32 RAYS", "ADAPTIVE 4x4 / MAX +50%"][tg_sampling], "POST DENOISE" if tg_post_denoise else "BASIC FILTER"]
 		if atmosphere != null: status.text += "\nF Fog  [ / ] Density  J/K Sun azimuth  U/I Sun elevation  8 Sky %s" % ("ON" if atmosphere.sky_enabled else "OFF")
 		status.text += "\n9 World cache %s (experimental)" % ("ON" if tg_world_cache else "OFF")
 		return
 	var names := ["DIRECT / NO GI", "MESH CACHE GI / 2 BOUNCES", "NATIVE VOXEL GI / 256", "CUSTOM INDIRECT ONLY"]
-	status.text = "Sponza | %s\n1 Direct  2 Mesh GI  3 Native VoxelGI  4 Indirect  P Preset\nHold RMB Look  WASD Fly  Space/Ctrl Up/Down  Shift Fast  Wheel Dolly\nArrows/Q/Z Move lamp  L Lamp  R Reset  Esc Release/Close" % names[mode]
+	status.text = "Sponza | %s\n1 Direct  2 Mesh GI  3 Native VoxelGI  4 Indirect  P Preset\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed\nArrows/PgUp/PgDn Move lamp  L Lamp  R Reset  Esc Release/Close" % names[mode]
 
 func _reset_camera() -> void:
 	if camera_controls != null: camera_controls.release_mouse()
@@ -348,8 +348,9 @@ func _process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_DOWN): move -= forward
 	if Input.is_physical_key_pressed(KEY_RIGHT): move += right
 	if Input.is_physical_key_pressed(KEY_LEFT): move -= right
-	if Input.is_physical_key_pressed(KEY_Q): move += Vector3.UP
-	if Input.is_physical_key_pressed(KEY_Z): move -= Vector3.UP
+	# Q / E / Space belong to the fly camera.
+	if Input.is_physical_key_pressed(KEY_PAGEUP): move += Vector3.UP
+	if Input.is_physical_key_pressed(KEY_PAGEDOWN): move -= Vector3.UP
 	lamp.global_position += move.limit_length() * delta * 3.0
 	lamp.global_position = lamp.global_position.clamp(Vector3(-11, 0.4, -3.2), Vector3(11, 9.0, 3.2))
 	_update_clock += delta

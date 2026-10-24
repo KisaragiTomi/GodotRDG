@@ -115,7 +115,7 @@ func _build_ui() -> void:
 	_update_status()
 
 func _update_status() -> void:
-	status.text = "CITY ATMOSPHERE  /  %s\n464 x 464 m   %d buildings   Kenney CC0\nP / 1-3 views   F fog %s   [ / ] density %.2f   Arrows sun\nR reset   RMB + WASD fly   Space / Ctrl height   Shift fast   H hide" % [VIEW_NAMES[preset], get_meta("building_count"), "ON" if atmosphere.active else "OFF", atmosphere.thickness]
+	status.text = "CITY ATMOSPHERE  /  %s\n464 x 464 m   %d buildings   Kenney CC0\nP / 1-3 views   F fog %s   [ / ] density %.2f   Arrows sun\nR reset   RMB + WASD fly   E / Space up   Q down   Wheel speed   Shift fast   H hide" % [VIEW_NAMES[preset], get_meta("building_count"), "ON" if atmosphere.active else "OFF", atmosphere.thickness]
 	status.text += "\nV fog quality: %s | coverage %.0f m" % ["BALANCED" if balanced_fog else "HIGH", atmosphere.fog_length]
 
 func _process(delta: float) -> void:

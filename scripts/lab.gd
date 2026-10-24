@@ -228,12 +228,12 @@ func _create_ui() -> void:
 	_status.add_theme_font_size_override("font_size", 20)
 	stack.add_child(_status)
 	_hint = Label.new()
-	_hint.text = "1 Direct  2 Surface GI  3 Indirect  4 VoxelGI  5 LightmapGI\nL Move lamp  O Door  P Top-down preset / projection\nHold RMB Look  WASD Fly  Space/Ctrl Up/Down  Shift Fast  Wheel Dolly"
+	_hint.text = "1 Direct  2 Surface GI  3 Indirect  4 VoxelGI  5 LightmapGI\nL Move lamp  O Door  P Top-down preset / projection\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed (top-down: zoom)"
 	_hint.add_theme_font_size_override("font_size", 14)
 	if emissive_demo:
-		_hint.text = "1 Source only  2 GI  3 Indirect  E Emitters  G Glow  + / - Strength\nHold RMB Look  WASD Fly  Space/Ctrl Up/Down  Shift Fast  Wheel Dolly\nP Top-down preset  Esc Release/Close | Point lights OFF"
+		_hint.text = "1 Source only  2 GI  3 Indirect  T Emitters  G Glow  + / - Strength\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed (top-down: zoom)\nP Top-down preset  Esc Release/Close | Point lights OFF"
 	if ball_demo:
-		_hint.text = "Arrows Move ball  Q/Z Ball height  R Reset ball  C Color  E Light\n+ / - Brightness  1 / 2 / 3 Compare  G Glow  P Top-down preset\nHold RMB Look  WASD Fly  Space/Ctrl Up/Down  Shift Fast  Esc Release/Close"
+		_hint.text = "Arrows Move ball  PgUp/PgDn Ball height  R Reset ball  C Color  T Light\n+ / - Brightness  1 / 2 / 3 Compare  G Glow  P Top-down preset\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Esc Release/Close"
 	stack.add_child(_hint)
 	var footer := Label.new()
 	footer.position = Vector2(18, 740)
@@ -303,7 +303,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					ball.refresh_visual()
 			KEY_L:
 				if not emissive_demo: animate_light = not animate_light
-			KEY_E:
+			KEY_T:
+				# Not E: E / Q / Space move the fly camera.
 				if ball_demo:
 					ball.enabled = not ball.enabled
 					ball.refresh_visual()
@@ -479,10 +480,10 @@ func _capture_ball(folder: String) -> void:
 	var blue := CacheValidation.summarize(layout, await _read_atlas())
 	result["color_changes_illumination"] = blue.rgb_mean[2] > blue.rgb_mean[0] * 2.0
 	await _capture(folder.path_join("ball_blue.png"))
-	_ball_key(KEY_E)
+	_ball_key(KEY_T)
 	await _wait_ball()
 	result["switch_off_clears_light"] = _image_energy(await _read_atlas()) == 0.0
-	_ball_key(KEY_E)
+	_ball_key(KEY_T)
 	_ball_key(KEY_R)
 	ball.color_index = 0
 	ball.refresh_visual()

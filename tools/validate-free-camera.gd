@@ -31,6 +31,14 @@ func _motion(amount: Vector2) -> void:
 	Input.parse_input_event(event)
 	Input.flush_buffered_events()
 
+## Holds the keys for one 0.1 s controller step and returns how far the camera moved.
+func _step(controls: FreeFlyCamera, keys: Array) -> Vector3:
+	var origin := controls.camera.position
+	for code in keys: _key(code, true)
+	controls._process(0.1)
+	for code in keys: _key(code, false)
+	return controls.camera.position - origin
+
 func _run() -> void:
 	var scene = load("res://scenes/sponza.tscn").instantiate()
 	root.add_child(scene)
@@ -52,35 +60,21 @@ func _run() -> void:
 	_button(MOUSE_BUTTON_RIGHT, false)
 	checks["rmb_release"] = not controls.looking and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE
 	scene._reset_camera()
-	var origin := camera.position
+	# Key bindings of the general fly camera: WASD, E / Space up, Q down, Shift x2.5.
 	var forward := -camera.basis.z
-	_key(KEY_W, true)
-	controls._process(0.1)
-	_key(KEY_W, false)
-	var regular_distance := camera.position.distance_to(origin)
-	checks["fly_along_view"] = (camera.position - origin).is_equal_approx(forward * 0.5) and absf(camera.position.y - origin.y) > 0.01
-	origin = camera.position
-	_key(KEY_W, true)
-	_key(KEY_SHIFT, true)
-	controls._process(0.1)
-	_key(KEY_W, false)
-	_key(KEY_SHIFT, false)
-	checks["shift_boost"] = absf(camera.position.distance_to(origin) - regular_distance * 3.0) < 0.001
-	origin = camera.position
-	_key(KEY_SPACE, true)
-	controls._process(0.1)
-	_key(KEY_SPACE, false)
-	checks["world_up"] = (camera.position - origin).is_equal_approx(Vector3.UP * 0.5)
-	_key(KEY_CTRL, true)
-	controls._process(0.1)
-	_key(KEY_CTRL, false)
-	checks["world_down"] = camera.position.is_equal_approx(origin)
-	_key(KEY_Q, true)
-	controls._process(0.1)
-	_key(KEY_Q, false)
-	checks["lamp_keys_do_not_move_camera"] = camera.position.is_equal_approx(origin)
+	var speed := controls.speed
+	var moved := _step(controls, [KEY_W])
+	checks["fly_along_view"] = moved.is_equal_approx(forward * speed * 0.1) and absf(moved.y) > 0.01
+	checks["shift_boost"] = _step(controls, [KEY_W, KEY_SHIFT]).is_equal_approx(forward * speed * 2.5 * 0.1)
+	checks["e_space_up"] = _step(controls, [KEY_E]).is_equal_approx(Vector3.UP * speed * 0.1) and _step(controls, [KEY_SPACE]).is_equal_approx(Vector3.UP * speed * 0.1)
+	checks["q_down"] = _step(controls, [KEY_Q]).is_equal_approx(Vector3.DOWN * speed * 0.1)
+	checks["lamp_keys_do_not_move_camera"] = _step(controls, [KEY_PAGEUP]).is_zero_approx() and _step(controls, [KEY_PAGEDOWN]).is_zero_approx()
+	# The wheel changes the speed and leaves the camera where it is.
+	var position := camera.position
 	_button(MOUSE_BUTTON_WHEEL_UP, true)
-	checks["wheel_dolly"] = (camera.position - origin).is_equal_approx(forward * 0.6)
+	var faster := controls.speed
+	_button(MOUSE_BUTTON_WHEEL_DOWN, true)
+	checks["wheel_speed"] = is_equal_approx(faster, speed + controls.speed_scroll_step) and is_equal_approx(controls.speed, speed) and camera.position == position
 	_button(MOUSE_BUTTON_RIGHT, true)
 	root.focus_exited.emit()
 	checks["focus_loss_releases_mouse"] = not controls.looking and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE

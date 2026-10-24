@@ -188,7 +188,7 @@ func _build_ui() -> void:
 	_update_status()
 
 func _update_status() -> void:
-	status.text = "SUNLIT ATMOSPHERE  /  TG scattering study\nFog %s   Thickness %.2f   Anisotropy %.2f   Sun %s\nF fog   [ / ] density   G forward / isotropic   L sunlight   B moving shutter   Arrows sun angle\nR reset   P camera presets   RMB + WASD fly   Space / Ctrl height   Shift fast   H hide panel" % ["ON" if atmosphere.active else "OFF", atmosphere.thickness, atmosphere.anisotropy, "ON" if sun.visible else "OFF"]
+	status.text = "SUNLIT ATMOSPHERE  /  TG scattering study\nFog %s   Thickness %.2f   Anisotropy %.2f   Sun %s\nF fog   [ / ] density   G forward / isotropic   L sunlight   B moving shutter   Arrows sun angle\nR reset   P camera presets   RMB + WASD fly   E / Space up   Q down   Wheel speed   Shift fast   H hide panel" % ["ON" if atmosphere.active else "OFF", atmosphere.thickness, atmosphere.anisotropy, "ON" if sun.visible else "OFF"]
 
 func _process(delta: float) -> void:
 	if atmosphere == null or not capture_path.is_empty(): return

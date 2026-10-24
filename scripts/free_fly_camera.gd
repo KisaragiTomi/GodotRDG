@@ -1,9 +1,14 @@
 class_name FreeFlyCamera
 extends Node
 ## Viewer controls shared by the GI demos. No collision or camera roll.
+## Keys as in the general fly camera ($GODOT_SOURCE/misc/shared_scripts/fly_camera.gd): hold RMB to look, WASD,
+## E / Space up, Q down, Shift x2.5, the wheel changes the speed.
 
 var camera: Camera3D
 var speed := 5.0
+var speed_scroll_step := 5.0
+var min_speed := 1.0
+var max_speed := 200.0
 var sensitivity := 0.0025
 var looking := false
 var enabled := false:
@@ -38,7 +43,7 @@ func _input(event: InputEvent) -> void:
 			if camera.projection == Camera3D.PROJECTION_ORTHOGONAL:
 				camera.size = clampf(camera.size - direction, 1.0, 80.0)
 			else:
-				camera.global_position -= camera.global_basis.z * direction * 0.6
+				speed = clampf(speed + direction * speed_scroll_step, min_speed, max_speed)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and looking:
 		var angles := camera.rotation
@@ -57,7 +62,7 @@ func _process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_S): direction += camera.global_basis.z
 	if Input.is_physical_key_pressed(KEY_D): direction += camera.global_basis.x
 	if Input.is_physical_key_pressed(KEY_A): direction -= camera.global_basis.x
-	if Input.is_physical_key_pressed(KEY_SPACE): direction += Vector3.UP
-	if Input.is_physical_key_pressed(KEY_CTRL): direction -= Vector3.UP
-	var boost := 3.0 if Input.is_physical_key_pressed(KEY_SHIFT) else 1.0
+	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_SPACE): direction += Vector3.UP
+	if Input.is_physical_key_pressed(KEY_Q): direction -= Vector3.UP
+	var boost := 2.5 if Input.is_physical_key_pressed(KEY_SHIFT) else 1.0
 	camera.global_position += direction.limit_length() * speed * boost * minf(delta, 0.1)

@@ -13,7 +13,8 @@ var visual: MeshInstance3D
 var material: StandardMaterial3D
 
 func _ready() -> void:
-	for binding in [["ball_left", KEY_LEFT], ["ball_right", KEY_RIGHT], ["ball_up", KEY_UP], ["ball_down", KEY_DOWN], ["ball_raise", KEY_Q], ["ball_lower", KEY_Z]]:
+	# Height on PageUp / PageDown: Q / E / Space move the fly camera.
+	for binding in [["ball_left", KEY_LEFT], ["ball_right", KEY_RIGHT], ["ball_up", KEY_UP], ["ball_down", KEY_DOWN], ["ball_raise", KEY_PAGEUP], ["ball_lower", KEY_PAGEDOWN]]:
 		if InputMap.has_action(binding[0]):
 			continue
 		InputMap.add_action(binding[0])
