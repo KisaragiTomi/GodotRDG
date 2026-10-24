@@ -67,11 +67,13 @@ CPU 耗时（16 个工作线程；256 pass 的图分 8 个录制任务，取多�
 | `demo/` | Demo 场景和 UI 脚本 |
 | `modules/tg_gi/` | `TGScreenGI`（稀疏 GI，含历史捕获 `TGScreenGIHistory`）和 `TGSurfaceFog`（雾合成），UE 写法的 RDG pass |
 | `shaders/tg/` | `TGScreenGI.glsl`、`TGSurfaceFog.glsl`，虚拟路径 `/Project/tg/...`；目录带 `.gdignore` |
-| `shaders/`（其余）、`scripts/`、`scenes/`、`assets/`、`addons/`、`legacy_rc/` | 迁入的 GI / 雾演示：场景、GDScript（大气 `TGAtmosphere`、各演示）、材质 shader、旧盒体 GI 与 RC 副本、Kenney 城市模型 |
+| `shaders/`（其余）、`scripts/`、`scenes/`、`assets/`、`addons/native_baselines/`、`legacy_rc/` | 迁入的 GI / 雾演示：场景、GDScript（大气 `TGAtmosphere`、各演示）、材质 shader、旧盒体 GI 与 RC 副本、Kenney 城市模型 |
 | `generated/`、`assets/sponza/glTF/` | Sponza 模型与预处理的 BVH / 材质数据，由 `tools/download-sponza.py` 和 `tools/prepare-sponza.ps1` 生成，不进仓库 |
 | `docs/` | README 用的图；迁入的 GI / 雾文档（`TG_SCREEN_GI.md`、`TG_ATMOSPHERE.md`、`CITY_SCENE.md` 等）；目录带 `.gdignore` |
 | `tests/run_tests.gd` | 命令行跑 RDG 自测；`tests/` 下其余脚本是旧盒体 GI 的测试 |
 | `tools/build_engine.bat` | 编译带本模块的编辑器 |
+| `tools/open-editor.ps1` | 用这个构建打开本项目的编辑器 |
+| `addons/rdg_engine_check/` | 编辑器插件：编辑器里没有本模块的类时（例如双击 `project.godot` 打开了普通 Godot）弹窗说明原因 |
 | `tools/*.ps1`、`tools/*.py` | GI / 雾演示的启动、验证和对比脚本（`run-tg.ps1`、`validate-tg-*.ps1` 等），见 [tools/README.md](tools/README.md) |
 | `engine/rdg-engine.patch` | 引擎补丁（基于 4.6.1-stable `14d1969`）：RD 的内存堆、放置式资源、别名依赖、async compute 队列、录制上下文和并行翻译，以及给 `TGSurfaceFog` 用的原生体积雾接口；目录带 `.gdignore` |
 
@@ -99,6 +101,14 @@ tools\build_engine.bat
 - 额外参数会透传给 SCons，例如 `tools\build_engine.bat dev_build=yes`。
 - 首次全量编译约 10 分钟（`scu_build=yes`），之后改模块只需十几秒；改 `rendering_device.h` 会触发接近全量的重编。
 - 修改引擎后在 worktree 里提交到 `rdg-engine` 分支，再用 `git diff 14d1969 -- servers drivers > <本项目目录>\engine\rdg-engine.patch` 重新导出补丁。
+
+编辑器也要用这个构建打开：
+
+```powershell
+./tools/open-editor.ps1
+```
+
+双击 `project.godot` 会用系统关联的普通 Godot。它没有 `RDGCompositorEffect`、`RenderGraphConsole`、`TGScreenGI` 等引擎类，用到它们的脚本都报解析错误，`DemoViewer` 自动加载也会失败；这时 `RDG Engine Check` 插件会弹窗说明原因。
 
 ## 运行测试与 Demo
 

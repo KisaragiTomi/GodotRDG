@@ -31,10 +31,9 @@ window/vsync/vsync_mode=0
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/native_baselines/plugin.cfg")
+enabled=PackedStringArray("res://addons/native_baselines/plugin.cfg", "res://addons/rdg_engine_check/plugin.cfg")
 
 [rendering]
 
-rendering_device/driver.windows="vulkan"
 environment/volumetric_fog/volume_size=256
 environment/volumetric_fog/volume_depth=192
