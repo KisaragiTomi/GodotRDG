@@ -8,6 +8,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Sponza source asset import failed.' }
 & $godotExe --headless --path $projectRoot --script res://scripts/prepare_sponza.gd
 if ($LASTEXITCODE -ne 0) { throw 'Sponza mesh export failed.' }
 & $Python (Join-Path $PSScriptRoot 'prepare-sponza.py') --bvh $Bvh
-if ($LASTEXITCODE -ne 0) { throw 'Sponza cache preparation failed. Python requires numpy, scipy and Pillow.' }
+if ($LASTEXITCODE -ne 0) { throw 'Sponza BVH preparation failed. Python requires numpy.' }
 & $godotExe --headless --editor --path $projectRoot --import --quit
 if ($LASTEXITCODE -ne 0) { throw 'Sponza generated resource import failed.' }

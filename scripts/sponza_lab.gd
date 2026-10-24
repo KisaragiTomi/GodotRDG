@@ -1,5 +1,6 @@
 extends Node3D
-## Same geometry, lights and materials for custom mesh GI and native reference.
+## Sponza with the TG-style live GI (TGScreenGI) and the optional sunlit atmosphere. No lighting is baked: only the
+## triangle BVH and material data from tools/prepare-sponza.ps1 are precomputed.
 
 var geometry: Node3D
 var camera: Camera3D
@@ -7,20 +8,12 @@ var camera_controls: FreeFlyCamera
 var sun: DirectionalLight3D
 var lamp: OmniLight3D
 var marker: MeshInstance3D
-var native: NativeBaselines
 var status: Label
-var bounds := AABB()
 var ready_for_input := false
 var overview := false
 var capture_path := ""
-var report: Dictionary = {}
-var cache: MeshSurfaceCache
 var materials: Array[ShaderMaterial] = []
 var mode := 1
-var _last_lights := PackedFloat32Array()
-var _update_clock := 0.0
-var _atlas_image: Image
-@export var tg_requested := false
 var tg: TGScreenGI
 var blocker: MeshInstance3D
 var _blocker_state := 0
@@ -46,7 +39,6 @@ var _sky_source := Vector3(-1, -1, -1)
 func _ready() -> void:
 	var native_fog_only := "--tg-native-fog" in OS.get_cmdline_user_args()
 	for arg in OS.get_cmdline_user_args():
-		if arg == "--tg": tg_requested = true
 		if arg == "--atmosphere": atmosphere_requested = true
 		if arg.begins_with("--atmosphere-capture="):
 			atmosphere_requested = true
@@ -61,24 +53,13 @@ func _ready() -> void:
 		if arg.begins_with("--tg-sampling="): tg_sampling = clampi(arg.trim_prefix("--tg-sampling=").to_int(), 0, 3)
 		if arg.begins_with("--sponza-capture="):
 			capture_path = arg.trim_prefix("--sponza-capture=")
-	separate_surface_fog = tg_requested and atmosphere_requested and TGSurfaceFog.supported() and not native_fog_only
+	separate_surface_fog = atmosphere_requested and TGSurfaceFog.supported() and not native_fog_only
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	_create_environment()
 	_create_ui()
 	geometry = (load("res://assets/sponza/glTF/Sponza.gltf") as PackedScene).instantiate()
 	geometry.name = "Sponza"
 	add_child(geometry)
-	var mesh_count := 0
-	var surfaces := 0
-	for mesh in geometry.find_children("*", "MeshInstance3D", true, false):
-		var instance := mesh as MeshInstance3D
-		if not tg_requested: instance.mesh = load("res://generated/sponza/mesh.res")
-		instance.gi_mode = GeometryInstance3D.GI_MODE_STATIC
-		var world_bounds: AABB = instance.global_transform * instance.mesh.get_aabb()
-		bounds = world_bounds if mesh_count == 0 else bounds.merge(world_bounds)
-		mesh_count += 1
-		surfaces += instance.mesh.get_surface_count()
-	report = {"renderer": "Mesh surface cache / triangle BVH, with native VoxelGI reference", "mesh_instances": mesh_count, "surfaces": surfaces, "world_bounds": str(bounds)}
 	_create_lights()
 	if atmosphere_requested:
 		sun.look_at_from_position(Vector3(-0.75, 0.65, -0.2) * 30.0, Vector3.ZERO)
@@ -89,10 +70,10 @@ func _ready() -> void:
 		atmosphere.distance_scale = 0.28
 		atmosphere.thickness = 1.1
 		atmosphere.fog_length = 55.0
-		if tg_requested: atmosphere.sky_enabled = "--tg-no-sky" not in OS.get_cmdline_user_args()
+		atmosphere.sky_enabled = "--tg-no-sky" not in OS.get_cmdline_user_args()
 		add_child(atmosphere)
 		atmosphere.setup(get_world_3d().environment, sun)
-		if tg_requested: _create_sky()
+		_create_sky()
 		lamp.light_volumetric_fog_energy = 0.0
 	camera = Camera3D.new()
 	camera.near = 0.08
@@ -106,40 +87,7 @@ func _ready() -> void:
 	add_child(camera_controls)
 	get_viewport().msaa_3d = Viewport.MSAA_2X
 	get_viewport().use_taa = true
-	if tg_requested:
-		await _start_tg()
-		return
-	native = NativeBaselines.new()
-	add_child(native)
-	# Model root is scaled by the importer; keep the baker in world coordinates.
-	var bake_root := Node3D.new()
-	bake_root.name = "BakeRoot"
-	add_child(bake_root)
-	geometry.reparent(bake_root)
-	sun.reparent(bake_root)
-	lamp.reparent(bake_root)
-	native.setup(bake_root, bounds, [sun, lamp])
-	native.voxel.subdiv = VoxelGI.SUBDIV_256
-	status.text = "Sponza: baking native VoxelGI (256)..."
-	await get_tree().process_frame
-	var bake_result: Dictionary = await native.bake_voxel()
-	report["bake"] = bake_result
-	if not bake_result.ok:
-		push_error(str(bake_result))
-		get_tree().quit(1)
-		return
-	status.text = "Sponza: building custom mesh transport (256 rays)..."
-	cache = MeshSurfaceCache.new()
-	cache.failed.connect(func(message): push_error(message); get_tree().quit(1))
-	_last_lights = _light_data()
-	cache.initialize(_last_lights)
-	await cache.ready_for_use
-	_create_cache_materials()
-	_select_mode(1)
-	ready_for_input = true
-	_update_status()
-	if not capture_path.is_empty():
-		await _capture()
+	await _start_tg()
 
 func _create_environment() -> void:
 	var world := WorldEnvironment.new()
@@ -168,7 +116,7 @@ func _create_sky() -> void:
 	# Ambient injection stays disabled: only unoccluded rays receive sky light.
 
 func _set_sky_enabled(value: bool) -> void:
-	if atmosphere == null or not tg_requested: return
+	if atmosphere == null: return
 	atmosphere.sky_enabled = value
 	atmosphere.apply()
 
@@ -214,13 +162,12 @@ func _create_ui() -> void:
 	status = Label.new()
 	status.add_theme_font_size_override("font_size", 17)
 	panel.add_child(status)
-	if tg_requested:
-		status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-		panel.offset_left = 12
-		panel.offset_right = -300
-		panel.offset_top = 12
-		_create_timing_ui(canvas)
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	panel.offset_left = 12
+	panel.offset_right = -300
+	panel.offset_top = 12
+	_create_timing_ui(canvas)
 
 func _create_timing_ui(canvas: CanvasLayer) -> void:
 	var panel := PanelContainer.new()
@@ -306,15 +253,12 @@ func _update_timing_ui(delta: float) -> void:
 		label.modulate = Color(1.0, 0.78, 0.43) if key == "trace" else Color(0.9, 0.95, 1.0)
 
 func _update_status() -> void:
-	if tg != null:
-		var names := ["DIRECT / NO GI", "TG-STYLE / SCREEN + BVH + SH", "TG-STYLE / BVH ONLY + SH", "TG-STYLE / INDIRECT (BVH)", "TG-STYLE / NO TEMPORAL HISTORY"]
-		if atmosphere != null and atmosphere.environment.volumetric_fog_enabled: names[1] = "TG-STYLE / CLEAN SCREEN + BVH + ATMOSPHERE" if separate_surface_fog else "TG-STYLE / BVH + ATMOSPHERE"
-		status.text = "Sponza | %s | %s | %s\n1 Direct  2 TG  3 BVH  4 Indirect  5 No history  6 Sampling  7 Denoise  B Blocker\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed\nArrows/PgUp/PgDn Move lamp  L Lamp  R Reset  P Preset  Esc Release/Close" % [names[mode], ["SPARSE 4x4 / 1 RAY", "QUALITY 2/4/8 RAYS", "REFERENCE 32 RAYS", "ADAPTIVE 4x4 / MAX +50%"][tg_sampling], "POST DENOISE" if tg_post_denoise else "BASIC FILTER"]
-		if atmosphere != null: status.text += "\nF Fog  [ / ] Density  J/K Sun azimuth  U/I Sun elevation  8 Sky %s" % ("ON" if atmosphere.sky_enabled else "OFF")
-		status.text += "\n9 World cache %s (experimental)" % ("ON" if tg_world_cache else "OFF")
-		return
-	var names := ["DIRECT / NO GI", "MESH CACHE GI / 2 BOUNCES", "NATIVE VOXEL GI / 256", "CUSTOM INDIRECT ONLY"]
-	status.text = "Sponza | %s\n1 Direct  2 Mesh GI  3 Native VoxelGI  4 Indirect  P Preset\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed\nArrows/PgUp/PgDn Move lamp  L Lamp  R Reset  Esc Release/Close" % names[mode]
+	if tg == null: return
+	var names := ["DIRECT / NO GI", "TG-STYLE / SCREEN + BVH + SH", "TG-STYLE / BVH ONLY + SH", "TG-STYLE / INDIRECT (BVH)", "TG-STYLE / NO TEMPORAL HISTORY"]
+	if atmosphere != null and atmosphere.environment.volumetric_fog_enabled: names[1] = "TG-STYLE / CLEAN SCREEN + BVH + ATMOSPHERE" if separate_surface_fog else "TG-STYLE / BVH + ATMOSPHERE"
+	status.text = "Sponza | %s | %s | %s\n1 Direct  2 TG  3 BVH  4 Indirect  5 No history  6 Sampling  7 Denoise  B Blocker\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed\nArrows/PgUp/PgDn Move lamp  L Lamp  R Reset  P Preset  Esc Release/Close" % [names[mode], ["SPARSE 4x4 / 1 RAY", "QUALITY 2/4/8 RAYS", "REFERENCE 32 RAYS", "ADAPTIVE 4x4 / MAX +50%"][tg_sampling], "POST DENOISE" if tg_post_denoise else "BASIC FILTER"]
+	if atmosphere != null: status.text += "\nF Fog  [ / ] Density  J/K Sun azimuth  U/I Sun elevation  8 Sky %s" % ("ON" if atmosphere.sky_enabled else "OFF")
+	status.text += "\n9 World cache %s (experimental)" % ("ON" if tg_world_cache else "OFF")
 
 func _reset_camera() -> void:
 	if camera_controls != null: camera_controls.release_mouse()
@@ -332,7 +276,6 @@ func _reset_camera() -> void:
 func _process(delta: float) -> void:
 	var interactive := ready_for_input and capture_path.is_empty() and noise_capture_path.is_empty() and camera_capture_path.is_empty() and atmosphere_capture_path.is_empty()
 	if camera_controls != null: camera_controls.enabled = interactive
-	if cache != null: cache.poll_timing()
 	if tg != null: _push_tg_inputs()
 	_update_timing_ui(delta)
 	if not interactive:
@@ -353,11 +296,6 @@ func _process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_PAGEDOWN): move -= Vector3.UP
 	lamp.global_position += move.limit_length() * delta * 3.0
 	lamp.global_position = lamp.global_position.clamp(Vector3(-11, 0.4, -3.2), Vector3(11, 9.0, 3.2))
-	_update_clock += delta
-	if _update_clock >= 1.0 / 30.0:
-		_update_clock = 0.0
-		var lights := _light_data()
-		if cache != null and lights != _last_lights and cache.update_lights(lights): _last_lights = lights
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not ready_for_input or not capture_path.is_empty() or not noise_capture_path.is_empty() or not camera_capture_path.is_empty() or not atmosphere_capture_path.is_empty():
@@ -425,99 +363,6 @@ func _settle(frames: int = 45) -> void:
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 
-func _capture() -> void:
-	DirAccess.make_dir_recursive_absolute(capture_path)
-	_select_mode(0)
-	await _settle()
-	var direct := get_viewport().get_texture().get_image()
-	direct.save_png(capture_path.path_join("sponza_direct.png"))
-	_select_mode(1)
-	await _settle(90)
-	var indirect := get_viewport().get_texture().get_image()
-	indirect.save_png(capture_path.path_join("sponza_topdown_gi.png"))
-	var difference := 0.0
-	var brighter := 0
-	var count := 0
-	for y in range(150, direct.get_height(), 4):
-		for x in range(0, direct.get_width(), 4):
-			var a := direct.get_pixel(x, y).get_luminance()
-			var b := indirect.get_pixel(x, y).get_luminance()
-			difference += absf(a - b)
-			if b > a + 0.01: brighter += 1
-			count += 1
-	report["mean_image_difference"] = difference / count
-	report["brighter_pixel_fraction"] = float(brighter) / count
-	var cpu_times: Array[float] = []
-	var gpu_times: Array[float] = []
-	for frame in 90:
-		await get_tree().process_frame
-		cpu_times.append(RenderingServer.viewport_get_measured_render_time_cpu(get_viewport().get_viewport_rid()))
-		gpu_times.append(RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid()))
-	cpu_times.sort()
-	gpu_times.sort()
-	report["viewport_cpu_ms_median"] = cpu_times[cpu_times.size() / 2]
-	report["viewport_gpu_ms_median"] = gpu_times[gpu_times.size() / 2]
-	_select_mode(2)
-	await _settle(90)
-	get_viewport().get_texture().get_image().save_png(capture_path.path_join("sponza_voxel_gi.png"))
-	_select_mode(3)
-	await _settle()
-	get_viewport().get_texture().get_image().save_png(capture_path.path_join("sponza_indirect.png"))
-	var baseline := await _read_atlas()
-	baseline.save_exr(capture_path.path_join("custom_atlas.exr"), false)
-	var active_finite := true
-	var active_minimum := 0.0
-	var active_maximum := 0.0
-	for y in baseline.get_height():
-		for x in baseline.get_width():
-			var value := baseline.get_pixel(x, y)
-			for channel_value in [value.r, value.g, value.b]:
-				active_finite = active_finite and is_finite(channel_value)
-				active_minimum = minf(active_minimum, channel_value)
-				active_maximum = maxf(active_maximum, channel_value)
-	report["active_atlas_finite_nonnegative"] = active_finite and active_minimum >= 0.0
-	report["active_atlas_maximum"] = active_maximum
-	var initial_bytes := baseline.get_data()
-	var updates: int = cache.stats.lighting_updates
-	camera.position += Vector3(0.2, 0.0, 0.1)
-	await _settle()
-	var camera_atlas := await _read_atlas()
-	report["camera_does_not_update_cache"] = updates == cache.stats.lighting_updates and initial_bytes == camera_atlas.get_data()
-	_reset_camera()
-	lamp.position += Vector3(3.0, 0.0, 1.0)
-	await _update_cache()
-	var moved := await _read_atlas()
-	report["moving_light_changes_gi"] = moved.get_data() != initial_bytes and cache.stats.transport_builds == 1
-	_select_mode(1)
-	await _settle()
-	get_viewport().get_texture().get_image().save_png(capture_path.path_join("sponza_moved_light.png"))
-	sun.visible = false
-	lamp.visible = false
-	await _update_cache()
-	var dark := await _read_atlas()
-	var maximum := 0.0
-	var finite := true
-	for y in dark.get_height():
-		for x in dark.get_width():
-			var value := dark.get_pixel(x, y)
-			for channel in [value.r, value.g, value.b]:
-				finite = finite and is_finite(channel)
-				maximum = maxf(maximum, absf(channel))
-	report["lights_off_maximum"] = maximum
-	report["finite"] = finite
-	sun.visible = true
-	lamp.visible = true
-	lamp.position = Vector3(-2, 2, 0)
-	await _update_cache()
-	var restored := await _read_atlas()
-	report["deterministic_restore"] = restored.get_data() == initial_bytes
-	report["cache"] = cache.stats.duplicate(true)
-	report["passed"] = report.bake.ok and difference / count > 0.001 and brighter > 100 and report.camera_does_not_update_cache and report.moving_light_changes_gi and finite and maximum == 0.0 and report.deterministic_restore and report.active_atlas_finite_nonnegative and active_maximum > 0.0
-	var file := FileAccess.open(capture_path.path_join("results.json"), FileAccess.WRITE)
-	file.store_string(JSON.stringify(report, "\t"))
-	print("SPONZA_RESULT ", JSON.stringify(report))
-	get_tree().quit(0 if report.passed else 1)
-
 func _light_data() -> PackedFloat32Array:
 	var direction := sun.global_basis.z.normalized()
 	var sun_rgb := sun.light_color.srgb_to_linear() * (sun.light_energy if sun.visible else 0.0)
@@ -525,7 +370,7 @@ func _light_data() -> PackedFloat32Array:
 	var point := lamp.global_position
 	return PackedFloat32Array([direction.x, direction.y, direction.z, 0, sun_rgb.r, sun_rgb.g, sun_rgb.b, 0, point.x, point.y, point.z, lamp.omni_range, lamp_rgb.r, lamp_rgb.g, lamp_rgb.b, lamp.omni_attenuation])
 
-func _create_cache_materials() -> void:
+func _create_materials() -> void:
 	var shader := load("res://shaders/mesh_surface.gdshader") as Shader
 	var two_sided := Shader.new()
 	two_sided.code = shader.code.replace("render_mode diffuse_lambert;", "render_mode diffuse_lambert, cull_disabled;")
@@ -555,40 +400,20 @@ func _create_cache_materials() -> void:
 			material.set_shader_parameter("metallic_channel", source.metallic_texture_channel)
 			material.set_shader_parameter("roughness_channel", source.roughness_texture_channel)
 			material.set_shader_parameter("alpha_cutoff", source.alpha_scissor_threshold if source.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR else -1.0)
-			if cache != null: material.set_shader_parameter("indirect_atlas", cache.texture)
-			if tg != null:
-				material.set_shader_parameter("tg_sh", tg.sh_texture)
-				material.set_shader_parameter("tg_position", tg.position_texture)
-				material.set_shader_parameter("tg_normal", tg.normal_texture)
+			material.set_shader_parameter("tg_sh", tg.sh_texture)
+			material.set_shader_parameter("tg_position", tg.position_texture)
+			material.set_shader_parameter("tg_normal", tg.normal_texture)
 			instance.set_surface_override_material(index, material)
 			materials.append(material)
 
 func _select_mode(value: int) -> void:
 	mode = value
 	marker.visible = mode != 3
-	if tg != null:
-		for material in materials: material.set_shader_parameter("gi_mode", 0 if mode == 0 else (5 if mode == 3 else 4))
-		_push_tg_inputs()
-		_update_status()
-		return
-	native.select_mode("voxel" if mode == 2 else "direct")
-	for material in materials: material.set_shader_parameter("gi_mode", mode)
+	for material in materials: material.set_shader_parameter("gi_mode", 0 if mode == 0 else (5 if mode == 3 else 4))
+	_push_tg_inputs()
 	_update_status()
 
-func _read_atlas() -> Image:
-	_atlas_image = null
-	cache.read_atlas(func(image): _atlas_image = image)
-	while _atlas_image == null: await get_tree().process_frame
-	return _atlas_image
-
-func _update_cache() -> void:
-	while cache.pending: await get_tree().process_frame
-	cache.update_lights(_light_data())
-	await cache.update_complete
-	await _settle(4)
-
 func _exit_tree() -> void:
-	if cache != null: cache.shutdown()
 	if tg != null: tg.shutdown()
 	if surface_fog != null: surface_fog.shutdown()
 
@@ -629,7 +454,7 @@ func _start_tg() -> void:
 		compositor.compositor_effects = [tg, history, surface_fog]
 	camera.compositor = compositor
 	_push_tg_inputs()
-	_create_cache_materials()
+	_create_materials()
 	for shader_material in materials: shader_material.set_shader_parameter("tg_stable_denoise", tg_stable_denoise)
 	_select_mode(1)
 	ready_for_input = true

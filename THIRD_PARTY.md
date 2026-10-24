@@ -22,7 +22,7 @@
   This repository contains independently implemented GI and atmosphere experiments, not
   Tiny Glade source, compiled shaders, game binaries, or game assets. It is not
   affiliated with Tiny Glade or its developers.
-- Python tools use **NumPy**, **SciPy**, and **Pillow**, installed separately using
+- Python tools use **NumPy** and **Pillow**, installed separately using
   `tools/requirements.txt`; their respective upstream licenses apply.
 
 Historical audits may reference local source locations that are not part of the

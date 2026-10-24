@@ -31,7 +31,7 @@ window/vsync/vsync_mode=0
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/native_baselines/plugin.cfg", "res://addons/rdg_engine_check/plugin.cfg")
+enabled=PackedStringArray("res://addons/rdg_engine_check/plugin.cfg")
 
 [rendering]
 

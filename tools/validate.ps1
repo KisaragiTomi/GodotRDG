@@ -1,4 +1,4 @@
-param([switch]$BakeLightmap, [switch]$Emissive, [switch]$Ball, [ValidateSet('vulkan', 'd3d12')][string]$Backend = 'vulkan', [ValidateRange(16, 512)][int]$Rays = 256)
+param([switch]$Emissive, [switch]$Ball, [ValidateSet('vulkan', 'd3d12')][string]$Backend = 'vulkan', [ValidateRange(16, 512)][int]$Rays = 256)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = $projectRoot
@@ -19,14 +19,9 @@ function Invoke-GodotCheck([string]$Name, [string[]]$Arguments) {
     Write-Host "$Name passed: $logPath"
 }
 Invoke-GodotCheck 'import' @('--headless', '--editor', '--path', $projectPath, '--import', '--quit')
-if ($BakeLightmap) {
-    Invoke-GodotCheck 'native-export' @('--path', $projectPath, '--rendering-driver', $Backend, $labScene, '--', '--export-native-scene=res://generated/native_reference.tscn')
-    Invoke-GodotCheck 'lightmap-bake' @('--editor', '--path', $projectPath, '--rendering-driver', $Backend, '--', '--native-bake', '--scene=res://generated/native_reference.tscn', '--output=res://generated/native_reference.lmbake')
-}
 Invoke-GodotCheck 'transport-test' @('--path', $projectPath, '--rendering-driver', $Backend, '--script', 'res://tests/transport_test.gd')
 Invoke-GodotCheck 'material-test' @('--path', $projectPath, '--rendering-driver', $Backend, '--script', 'res://tests/material_test.gd')
 $labArguments = @('--path', $projectPath, '--rendering-driver', $Backend, $labScene, '--', '--validate', '--voxel', "--rays=$Rays")
-if (Test-Path -LiteralPath (Join-Path $projectPath 'generated/native_reference.lmbake')) { $labArguments += '--lightmap' }
 Invoke-GodotCheck 'validation-run' $labArguments
 $result = Get-Content -LiteralPath (Join-Path $artifactPath 'validation/results.json') -Raw | ConvertFrom-Json
 if (-not $result.passed) { throw 'Lab assertions failed.' }

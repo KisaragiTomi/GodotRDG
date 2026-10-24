@@ -36,9 +36,9 @@
 
 ## 是否仍在烘焙
 
-**此入口不预计算照明或光照传输。** 直接绘制原始 Sponza 网格，不读取旧路径的 UV2 网格、surfel atlas、padding 或逐射线命中表，也不创建原生 VoxelGI 烘焙参考。
+**此入口不预计算照明或光照传输。** 直接绘制原始 Sponza 网格。离线烘焙的旧方案（UV2 网格表面缓存 GI、LightmapGI 参考）已于 2026-10-24 删除。
 
-仍复用 `generated/sponza/` 中预先构建的三角形 BVH、三角形 UV/材质编号和缩小后的材质贴图。这些是静态几何加速数据，不含灯光、间接照度或预计算可见性结果。共享三角形文件里保留了旧 UV2 字段，但 TG shader 不使用它。光源、屏幕命中及 BVH 阴影查询每帧计算。
+仍复用 `generated/sponza/` 中预先构建的三角形 BVH、三角形 UV/材质编号和缩小后的材质贴图。这些是静态几何加速数据，不含灯光、间接照度或预计算可见性结果。三角形文件里原 UV2 的位置写零，只为保持 96 字节布局。光源、屏幕命中及 BVH 阴影查询每帧计算。
 
 输入场景改变后，仍需重新准备静态三角形数据；目前不是支持任意动画网格的通用 GI 插件。独立动态盒体用解析 AABB 交点演示实时遮挡。
 
@@ -74,7 +74,7 @@ $godot = & ./tools/resolve-godot.ps1
 
 - `modules/tg_gi/TGScreenGI.{h,cpp}`：RDG 版的渲染回调、输入、历史与计时（原 `tg_screen_gi.gd`），每个阶段一个 global shader，历史用 `QueueTextureExtraction` / `RegisterExternalTexture` 跨帧；`TGScreenGI.history_effect` 为不透明阶段之后的历史捕获（原 `tg_history.gd`）。
 - `shaders/tg/TGScreenGI.glsl`：几何引导、实时追踪、SH 投影、重投影及滤波（原 `tg_screen_gi.glsl`，每个阶段一个入口，只声明自己读写的资源）。
-- `shaders/mesh_surface.gdshader`：最终按像素重建；保留旧网格 GI 分支。
+- `shaders/mesh_surface.gdshader`：最终按像素重建。
 - `scripts/sponza_lab.gd`：`--tg` 入口、交互和实际 GPU 回归。
 
 ## 稀疏预算下的前次验证
@@ -142,7 +142,7 @@ $godot = & ./tools/resolve-godot.ps1
 
 准备脚本默认使用 16 桶、三个轴的 SAH 划分，保留原有每叶最多 8 个三角形、48 字节节点和无栈 escape-link 遍历。退化质心使用中位数回退，过深 SAH 分支改用平衡切分。没有修改追踪 shader、射线预算、材质、光源或降噪；这只更新几何加速数据。
 
-`./tools/prepare-sponza.ps1 -Bvh median` 可生成旧构建方式。已有缓存无需重新导出 UV，可执行 `python tools/triangle_bvh.py --method sah --output artifacts/bvh/sah`，随后 `./tools/run-tg.ps1 -BvhDirectory artifacts/bvh/sah` 对照。备用目录只提供 BVH、三角形和元数据，材质纹理仍来自原缓存。默认 F2 / `run-tg.ps1` 读取 `generated/sponza/`；更新已有默认缓存时，应将对应目录的 `bvh.bin`、`triangles.bin`、`cache.json` 三个文件一起替换，保留旧副本。本机已更新，原件保存在 `artifacts/bvh/original/`。
+`./tools/prepare-sponza.ps1 -Bvh median` 可生成旧构建方式。已有缓存无需重新导出三角形，可执行 `python tools/triangle_bvh.py --method sah --output artifacts/bvh/sah`，随后 `./tools/run-tg.ps1 -BvhDirectory artifacts/bvh/sah` 对照。备用目录只提供 BVH、三角形和元数据，材质纹理仍来自原缓存。默认 F2 / `run-tg.ps1` 读取 `generated/sponza/`；更新已有默认缓存时，应将对应目录的 `bvh.bin`、`triangles.bin`、`cache.json` 三个文件一起替换，保留旧副本。本机已更新，原件保存在 `artifacts/bvh/original/`。
 
 `./tools/validate-bvh.ps1` 运行几何正确性测试和 median / SAH / SAH / median 顺序的真实 Vulkan 对照。测试使用 1280×800、RTX 5070、稀疏预算、四轮降噪和大气预设灯光；计时阶段关闭显示端 TAA，覆盖两个 BVH 视角、开雾和屏幕追踪。每种情况预热 120 帧、采集 150 个计时样本；trace/total 是每轮 16 帧滚动阶段计时的中位数，再对两次运行取均值。完整原始结果位于 `artifacts/bvh/`。
 

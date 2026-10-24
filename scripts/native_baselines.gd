@@ -1,15 +1,13 @@
 class_name NativeBaselines
 extends Node
-## Native reference renderers. Bounds are in geometry_root's local space.
-## Lights must be descendants of geometry_root so both native bakers see them.
+## Native VoxelGI comparison, baked at runtime. Bounds are in geometry_root's local space.
+## Lights must be descendants of geometry_root so the voxel baker sees them.
 
 var voxel: VoxelGI
-var lightmap: LightmapGI
 var geometry_root: Node3D
 var current_mode := "direct"
 var last_bake_msec := 0.0
 var last_error := ""
-var _lightmap_data: LightmapGIData
 
 
 func setup(root: Node3D, bounds: AABB, lights: Array = []) -> void:
@@ -23,21 +21,9 @@ func setup(root: Node3D, bounds: AABB, lights: Array = []) -> void:
 	voxel.subdiv = VoxelGI.SUBDIV_128
 	root.add_child(voxel)
 	voxel.hide()
-	lightmap = LightmapGI.new()
-	lightmap.name = "LightmapBaseline"
-	lightmap.quality = LightmapGI.BAKE_QUALITY_HIGH
-	lightmap.bounces = 2
-	lightmap.directional = false
-	lightmap.interior = true
-	lightmap.environment_mode = LightmapGI.ENVIRONMENT_MODE_DISABLED
-	lightmap.generate_probes_subdiv = LightmapGI.GENERATE_PROBES_SUBDIV_8
-	lightmap.max_texture_size = 2048
-	root.add_child(lightmap)
-	lightmap.hide()
 	for source in lights:
 		if source is Light3D:
-			# Keep direct illumination real-time in every comparison. LightmapGI
-			# records only the indirect contribution from BAKE_DYNAMIC lights.
+			# Keep direct illumination real-time: VoxelGI injects BAKE_DYNAMIC lights every frame.
 			source.light_bake_mode = Light3D.BAKE_DYNAMIC
 			if not root.is_ancestor_of(source):
 				push_warning("Native baseline light must be below geometry_root: " + str(source.name))
@@ -89,45 +75,13 @@ func load_voxel(path: String) -> bool:
 	return true
 
 
-func prepare_lightmap(output_path: String) -> Error:
-	# LightmapGI.bake is intentionally not bound to GDScript in Godot 4.6.1.
-	# A saved empty resource gives the built-in editor baker a path without a dialog.
-	var directory_error := DirAccess.make_dir_recursive_absolute(output_path.get_base_dir())
-	if directory_error != OK:
-		return directory_error
-	var seed := LightmapGIData.new()
-	var save_error := ResourceSaver.save(seed, output_path)
-	if save_error == OK:
-		seed.take_over_path(output_path)
-		lightmap.light_data = seed
-	return save_error
-
-
-func load_lightmap(path: String) -> bool:
-	if not ResourceLoader.exists(path):
-		return false
-	var data := ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_REPLACE) as LightmapGIData
-	if data == null or data.get_user_count() == 0 or data.lightmap_textures.is_empty():
-		return false
-	_lightmap_data = data
-	if current_mode == "lightmap":
-		lightmap.light_data = _lightmap_data
-	return true
-
-
 func select_mode(mode: String) -> bool:
-	if mode not in ["direct", "voxel", "lightmap"]:
+	if mode not in ["direct", "voxel"]:
 		last_error = "Unknown native mode: " + mode
 		return false
 	if mode == "voxel" and voxel.data == null:
 		last_error = "VoxelGI has not been baked."
 		return false
-	if mode == "lightmap" and (_lightmap_data == null or _lightmap_data.get_user_count() == 0):
-		last_error = "LightmapGI has not been baked in the editor."
-		return false
-	# Hiding LightmapGI alone does not clear per-mesh lightmap assignments.
-	lightmap.light_data = _lightmap_data if mode == "lightmap" else null
-	lightmap.visible = mode == "lightmap"
 	voxel.visible = mode == "voxel"
 	current_mode = mode
 	last_error = ""
@@ -138,7 +92,6 @@ func status() -> Dictionary:
 	return {
 		"mode": current_mode,
 		"voxel_ready": is_instance_valid(voxel) and voxel.data != null,
-		"lightmap_ready": _lightmap_data != null and _lightmap_data.get_user_count() > 0,
 		"voxel_bake_ms": last_bake_msec,
 		"error": last_error,
 	}

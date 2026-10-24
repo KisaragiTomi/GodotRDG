@@ -1,36 +1,3 @@
-# Native GI reference baking
-
-Build the rdg engine (`tools\build_engine.bat`) or set `GODOT_EXE` to its console executable; see the root README.
-Use Forward+ and a GPU rendering device. Engine binaries are not bundled.
-The `Native GI Baseline Baker` project plugin is idle unless `--native-bake` is supplied.
-First export the lab's materialized native reference scene, including UV2 meshes and lights.
-
-```powershell
-$godot = & ./tools/resolve-godot.ps1
-& $godot --editor --path . -- --native-bake --scene=res://generated/native_reference.tscn --output=res://generated/native_reference.lmbake
-```
-
-For a saved VoxelGI resource, add `--kind=voxel` and use an output ending in `.res`.
-Runtime VoxelGI baking is also available through `NativeBaselines.bake_voxel()`.
-The bake command prints `NATIVE_BASELINE_BAKE` followed by a JSON result and exits.
-LightmapGI success requires populated mesh users and lightmap atlas textures.
-
-Do not pass `--headless`: Godot's native lightmapper requires a rendering device.
-Do not combine `--editor --script` to run an editor bake: Godot 4.6.1 creates a second
-SceneTree on that path, leaving editor progress dialogs attached to the wrong tree.
-The enabled editor plugin uses the normal editor startup instead.
-
-Meshes and lights must share the geometry root containing the native GI nodes.
-Use `GI_MODE_STATIC` for baked meshes and `Light3D.BAKE_DYNAMIC` for lights to keep
-direct lighting real-time while LightmapGI supplies the baked indirect component.
-The native runtime helper temporarily adapts the lab shader's `surface_color` to a
-diffuse StandardMaterial3D for VoxelGI's CPU material reader, then restores all overrides.
-This adapter does not claim support for arbitrary custom shader materials.
-
-`NativeBaselines.select_mode("direct")` clears per-mesh lightmap assignments;
-hiding a LightmapGI node by itself does not disable already assigned static lightmaps.
-Loading a `.lmbake` into runtime geometry requires identical mesh node paths and UV2.
-Keep generated `.exr` and `.exr.import` files together with the `.lmbake` resource.
 # 快速运行与验证
 
 `./tools/run-city.ps1` 运行默认城市大气场景。模型已附带，无需下载 Sponza 或生成 BVH。`-Capture` 保存真实 Vulkan 航拍、街道有雾/无雾、广场和控制面板截图到 `artifacts/city/`；`-Rebuild` 根据固定随机种子重新生成可编辑的 `scenes/city.tscn`，会覆盖对该场景文件的手工布局修改。场景范围和来源见 [城市场景说明](../docs/CITY_SCENE.md)。
@@ -51,7 +18,7 @@ Keep generated `.exr` and `.exr.import` files together with the `.lmbake` resour
 
 `./tools/validate-city-fog.ps1` 验证城市完整雾覆盖、两个质量预算、密度/开关、运动和环境恢复，并追加约 566–1301 米远距离的城市雾信号回归。城市 `V` 或启动参数 `-FullFog` 切换采样质量，两档均自动覆盖城市，不缩短远景范围。截图与数值分别在 `artifacts/city-fog/` 和 `artifacts/city-coverage/`。
 
-`./tools/validate-bvh.ps1` 运行 BVH 的暴力求交对照测试与四次顺序 GPU A/B。新准备流程默认 SAH，`prepare-sponza.ps1 -Bvh median` 保留旧方案。已有缓存可用 `python tools/triangle_bvh.py --method sah --output artifacts/bvh/sah` 单独构建备用加速数据，再用 `run-tg.ps1 -BvhDirectory artifacts/bvh/sah` 运行；完整 UV2/表面缓存无需重建。计时、固定射线 SH/截图等价性与结果在 `artifacts/bvh/`。
+`./tools/validate-bvh.ps1` 运行 BVH 的暴力求交对照测试与四次顺序 GPU A/B。新准备流程默认 SAH，`prepare-sponza.ps1 -Bvh median` 保留旧方案。已有缓存可用 `python tools/triangle_bvh.py --method sah --output artifacts/bvh/sah` 单独构建备用加速数据，再用 `run-tg.ps1 -BvhDirectory artifacts/bvh/sah` 运行。计时、固定射线 SH/截图等价性与结果在 `artifacts/bvh/`。
 
 所有交互演示的相机按键与通用飞行相机（`%GODOT_SOURCE%\misc\shared_scripts\fly_camera.gd`）一致：按住右键转向，WASD 移动，E/Space 上升、Q 下降，Shift 加速，滚轮调移动速度；P 恢复观察预设。释放右键或失焦释放鼠标，捕获时 Esc 先释放、再按退出。盒体演示的正交俯视预设里滚轮缩放视野，右键自动切入透视。
 
@@ -64,7 +31,7 @@ $godot = & ./tools/resolve-godot.ps1
 
 键盘飞行只在窗口有系统焦点时生效（`FreeFlyCamera._process` 检查 `has_focus()`）：从后台进程启动、另一个程序占着前台时，Windows 的前台锁不给新窗口焦点，键盘飞行各项会失败，重跑或启动后点一下窗口即可。检查右键捕获、转向、飞行、升降、加速、滚轮调速、移灯按键不动相机、焦点与 Esc 释放，以及预设恢复；旋转、平视、仰视和反向观察时验证 SH 有限与实际追踪。结果和截图在 `artifacts/free-camera/`，失败返回非零退出码。
 
-`./tools/run-tg.ps1` 打开 TG 风格的 Sponza 实时 GI。`-Capture` 输出 `artifacts/tg/` 下的截图、SH 调试数据、结果 JSON 与 `run.log`，检查屏幕/BVH 两种追踪、历史降噪、移灯、动态遮挡板、关灯归零、相机重投影和窗口缩放；功能断言或 Godot 错误都会使脚本失败。该路径只读取已准备的三角形 BVH 与材质，不读取 UV2 atlas 或预计算传输。详见 `docs/TG_SCREEN_GI.md`。
+`./tools/run-tg.ps1` 打开 TG 风格的 Sponza 实时 GI。`-Capture` 输出 `artifacts/tg/` 下的截图、SH 调试数据、结果 JSON 与 `run.log`，检查屏幕/BVH 两种追踪、历史降噪、移灯、动态遮挡板、关灯归零、相机重投影和窗口缩放；功能断言或 Godot 错误都会使脚本失败。该路径只读取已准备的三角形 BVH 与材质，不预计算任何光照或传输。详见 `docs/TG_SCREEN_GI.md`。
 
 `./tools/validate-tg-noise.ps1` 串行运行 TG 初版和改进后的降噪链路，比较静止、连续移灯和停下后的帧间波动，同时要求关灯归零。结果与前后截图写入 `artifacts/tg-noise/`；默认交互版使用改进后的低差异采样、有效 tap 历史插值、几何法线引导与 TAA 颜色历史。
 
@@ -74,9 +41,9 @@ $godot = & ./tools/resolve-godot.ps1
 
 `./tools/validate-tg-post.ps1 -Python <python.exe>` 固定每 4×4 像素一条射线，比较基础滤波和四轮方差引导后期降噪。验证静止、移灯、相机运动、关灯归零，并与 `artifacts/tg-camera/reference/` 的 32 射线结果比较全图和几何边缘误差；参考不存在时生成。变更场景/追踪算法后应先重跑 `validate-tg-camera.ps1` 更新参考。结果在 `artifacts/tg-post/`，包含预算/历史年龄一致性检查、误差与耗时。`run-tg.ps1 -BasicFilter` 可交互观察对照。
 
-`./tools/run-sponza.ps1` 打开 Sponza 的自研网格 GI 测试；`-Capture` 输出无 GI、自研 GI、原生 VoxelGI、仅间接光与移动灯光截图，并验证关灯归零、恢复确定性、静态传输复用和相机独立性。`./tools/prepare-sponza.ps1 -Python <python.exe>` 重新生成 UV2、表面采样点和 BVH（需要 numpy、scipy、Pillow）。详细说明见 `docs/SPONZA_TEST.md`。
+`./tools/prepare-sponza.ps1 -Python <python.exe>` 重新生成 TG 用的三角形 BVH 和材质数据（需要 numpy），不烘焙任何光照；Sponza 网格或材质改动后才需要重跑。
 
-在项目根目录运行 `./tools/run-lab.ps1` 打开交互演示。`./tools/validate.ps1 -BakeLightmap` 依次导入、导出静态参考、烘焙 LightmapGI、运行封闭薄墙 GPU 回归、实际材质 shader 回归及完整场景截图/性能采样。全部通过后返回 0；日志含 Godot 脚本/引擎错误也会判定失败。
+在项目根目录运行 `./tools/run-lab.ps1` 打开盒体交互演示，`4` 在运行时烘焙原生 VoxelGI 作对照（`scripts/native_baselines.gd`）。`./tools/validate.ps1` 依次导入、运行封闭薄墙 GPU 回归、实际材质 shader 回归及完整场景截图/性能采样（含 VoxelGI 对照）。全部通过后返回 0；日志含 Godot 脚本/引擎错误也会判定失败。
 
 默认 256 rays，支持 `-Rays 16..512`。`-Backend vulkan` 为本轮验证后端。`-Backend d3d12` 只提供启动选项，未进行本轮质量/性能验收。`--headless` 仅用于导入和语法检查，不能代替 GPU 检查。
 

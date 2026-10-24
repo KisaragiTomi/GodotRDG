@@ -3,5 +3,4 @@
 [ext_resource type="PackedScene" path="res://scenes/sponza.tscn" id="1"]
 
 [node name="SponzaAtmosphere" instance=ExtResource("1")]
-tg_requested = true
 atmosphere_requested = true

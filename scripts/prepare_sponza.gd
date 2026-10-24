@@ -1,5 +1,5 @@
 extends SceneTree
-## Offline UV charts and triangle export; GPU lighting remains runtime work.
+## Triangle and material export for the TG BVH (tools/prepare-sponza.py); no lighting is baked.
 
 const OUTPUT := "res://generated/sponza"
 
@@ -11,13 +11,7 @@ func _prepare() -> void:
 	var scene := (load("res://assets/sponza/glTF/Sponza.gltf") as PackedScene).instantiate()
 	root.add_child(scene)
 	var instance := scene.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D
-	var mesh: ArrayMesh = instance.mesh.duplicate()
-	var result := mesh.lightmap_unwrap(instance.global_transform, 0.3)
-	if result != OK:
-		push_error("Sponza UV unwrap failed: " + error_string(result))
-		quit(1)
-		return
-	ResourceSaver.save(mesh, OUTPUT.path_join("mesh.res"))
+	var mesh: ArrayMesh = instance.mesh
 	var material_ids: Dictionary = {}
 	var materials: Array[Dictionary] = []
 	var surface_materials: Array[int] = []
@@ -38,7 +32,6 @@ func _prepare() -> void:
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 		var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
-		var uv2: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
 		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 		for index in range(0, indices.size(), 3):
 			for corner in 3:
@@ -50,14 +43,15 @@ func _prepare() -> void:
 				triangles.append_array(PackedFloat32Array([n.x, n.y, n.z, 0.0]))
 			for corner in 3:
 				var vertex := indices[index + corner]
-				triangles.append_array(PackedFloat32Array([uv[vertex].x, uv[vertex].y, uv2[vertex].x, uv2[vertex].y]))
+				# zw: unused (the former lightmap UV2), kept for the GPU triangle layout.
+				triangles.append_array(PackedFloat32Array([uv[vertex].x, uv[vertex].y, 0.0, 0.0]))
 	var file := FileAccess.open(OUTPUT.path_join("input.bin"), FileAccess.WRITE)
 	file.store_buffer(triangles.to_byte_array())
 	file.close()
-	var metadata := {"atlas": [mesh.lightmap_size_hint.x, mesh.lightmap_size_hint.y], "triangles": triangles.size() / 36, "materials": materials, "surface_materials": surface_materials, "spacing_m": 0.3}
+	var metadata := {"triangles": triangles.size() / 36, "materials": materials, "surface_materials": surface_materials}
 	file = FileAccess.open(OUTPUT.path_join("input.json"), FileAccess.WRITE)
 	file.store_string(JSON.stringify(metadata, "\t"))
-	print("SPONZA_PREPARE ", metadata.triangles, " triangles, atlas=", metadata.atlas)
+	print("SPONZA_PREPARE ", metadata.triangles, " triangles, ", materials.size(), " materials")
 	scene.free()
 	quit()
 

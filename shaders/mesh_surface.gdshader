@@ -15,9 +15,8 @@ uniform float roughness_factor = 1.0;
 uniform int metallic_channel = 2;
 uniform int roughness_channel = 1;
 uniform float alpha_cutoff = -1.0;
-uniform sampler2D indirect_atlas : filter_linear, repeat_disable;
-// 0 direct, 1 mesh cache, 2 native VoxelGI, 3 mesh indirect, 4 TG, 5 TG indirect.
-uniform int gi_mode = 1;
+// 0 direct, 4 TG, 5 TG indirect only.
+uniform int gi_mode = 4;
 uniform sampler2D tg_sh : filter_nearest, repeat_disable;
 uniform sampler2D tg_position : filter_nearest, repeat_disable;
 uniform sampler2D tg_normal : filter_nearest, repeat_disable;
@@ -71,7 +70,7 @@ void fragment() {
         NORMAL_MAP = texture(normal_texture, UV).rgb;
         NORMAL_MAP_DEPTH = normal_scale;
     }
-    vec3 incoming = textureLod(indirect_atlas, UV2, 0.0).rgb;
+    vec3 incoming = vec3(0.0);
     if (gi_mode >= 4) {
         vec3 receiver_normal = NORMAL;
         if (has_normal) {
@@ -82,8 +81,8 @@ void fragment() {
         }
         incoming = tg_irradiance(SCREEN_UV, (INV_VIEW_MATRIX * vec4(VERTEX,1.0)).xyz, normalize(mat3(INV_VIEW_MATRIX) * receiver_normal), normalize(mat3(INV_VIEW_MATRIX) * NORMAL));
     }
-    IRRADIANCE = vec4((gi_mode == 1 || gi_mode == 4) ? incoming : vec3(0.0), gi_mode == 2 ? 0.0 : 1.0);
-    if (gi_mode == 3 || gi_mode == 5) {
+    IRRADIANCE = vec4(gi_mode == 4 ? incoming : vec3(0.0), 1.0);
+    if (gi_mode == 5) {
         ALBEDO = vec3(0.0);
         EMISSION = base.rgb * (1.0 - METALLIC) * incoming;
         METALLIC = 0.0;

@@ -3,7 +3,7 @@ extends Node3D
 const LayoutScript = preload("res://scripts/surface_layout.gd")
 const CacheScript = preload("res://scripts/surface_cache.gd")
 const SURFACE_SHADER = preload("res://shaders/surface.gdshader")
-const MODE_NAMES := ["DIRECT / no GI", "SURFACE CACHE / two diffuse bounces", "INDIRECT ONLY", "VOXEL GI / native baseline", "LIGHTMAP GI / baked reference"]
+const MODE_NAMES := ["DIRECT / no GI", "SURFACE CACHE / two diffuse bounces", "INDIRECT ONLY", "VOXEL GI / native baseline"]
 
 var layout: SurfaceLayout
 var cache: SurfaceCache
@@ -25,7 +25,6 @@ var _report: Dictionary = {}
 var _args: Dictionary = {}
 var _atlas_image: Image
 var _last_light_data := PackedFloat32Array()
-var _reference_light_data := PackedFloat32Array()
 var _rays := 256
 var emissive_demo := false
 var emitters_enabled := true
@@ -47,7 +46,6 @@ func _ready() -> void:
 	_create_environment()
 	_create_camera()
 	_create_lights()
-	_reference_light_data = _light_data()
 	_create_ui()
 	await _build_scene()
 	if _args.has("ball-capture"):
@@ -55,10 +53,6 @@ func _ready() -> void:
 		return
 	if _args.has("emissive-capture"):
 		await _capture_emissive(str(_args["emissive-capture"]))
-		return
-	if _args.has("export-native-scene"):
-		await _export_native_scene(str(_args["export-native-scene"]))
-		get_tree().quit()
 		return
 	if _args.has("validate"):
 		await _validate()
@@ -228,7 +222,7 @@ func _create_ui() -> void:
 	_status.add_theme_font_size_override("font_size", 20)
 	stack.add_child(_status)
 	_hint = Label.new()
-	_hint.text = "1 Direct  2 Surface GI  3 Indirect  4 VoxelGI  5 LightmapGI\nL Move lamp  O Door  P Top-down preset / projection\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed (top-down: zoom)"
+	_hint.text = "1 Direct  2 Surface GI  3 Indirect  4 VoxelGI\nL Move lamp  O Door  P Top-down preset / projection\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed (top-down: zoom)"
 	_hint.add_theme_font_size_override("font_size", 14)
 	if emissive_demo:
 		_hint.text = "1 Source only  2 GI  3 Indirect  T Emitters  G Glow  + / - Strength\nHold RMB Look  WASD Fly  E/Space Up  Q Down  Shift Fast  Wheel Speed (top-down: zoom)\nP Top-down preset  Esc Release/Close | Point lights OFF"
@@ -248,7 +242,7 @@ func _create_ui() -> void:
 
 func _process(delta: float) -> void:
 	if camera_controls != null:
-		camera_controls.enabled = not _busy and not _args.has("validate") and not _args.has("capture") and not _args.has("ball-capture") and not _args.has("emissive-capture") and not _args.has("export-native-scene")
+		camera_controls.enabled = not _busy and not _args.has("validate") and not _args.has("capture") and not _args.has("ball-capture") and not _args.has("emissive-capture")
 	if cache == null:
 		return
 	cache.poll_gpu_timing()
@@ -265,8 +259,6 @@ func _process(delta: float) -> void:
 	if animate_light:
 		light_time += delta
 		lamps[0].position = Vector3(-4 + sin(light_time * 0.7) * 2.2, 2.5, -2 + cos(light_time * 0.7) * 1.5)
-	if mode == 4 and _light_data() != _reference_light_data:
-		_set_mode(1)
 	update_clock += delta
 	if update_clock >= 1.0 / 30.0:
 		var data := _light_data()
@@ -293,8 +285,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_3: _set_mode(2)
 			KEY_4:
 				if not ball_demo: _enable_voxel()
-			KEY_5:
-				if not ball_demo: _enable_lightmap()
 			KEY_R:
 				if ball_demo: ball.position = EmissiveBall.START
 			KEY_C:
@@ -343,7 +333,7 @@ func _set_mode(value: int) -> void:
 	if ball_demo and is_instance_valid(ball):
 		ball.visual.visible = mode != 2
 	if is_instance_valid(native):
-		native.select_mode("voxel" if mode == 3 else ("lightmap" if mode == 4 else "direct"))
+		native.select_mode("voxel" if mode == 3 else "direct")
 	for instance in meshes:
 		for side in instance.mesh.get_surface_count():
 			var material := instance.mesh.surface_get_material(side) as ShaderMaterial
@@ -359,30 +349,6 @@ func _enable_voxel() -> void:
 	print("VOXEL_BASELINE ", JSON.stringify(result))
 	_set_mode(3 if result.get("ok", false) else 1)
 	_busy = false
-
-func _enable_lightmap() -> void:
-	if emissive_demo:
-		_hint.text = "The saved lightmap is for the point-light scene. Use 1 / 2 / 3 to compare emission and GI."
-		return
-	if door_closed or animate_light or _light_data() != _reference_light_data:
-		_hint.text = "Lightmap reference requires the original static scene: open door and stationary lights."
-		return
-	# Reuse the exact unwrapped mesh resources that were actually baked.
-	if ResourceLoader.exists("res://generated/native_reference.tscn"):
-		var reference := (load("res://generated/native_reference.tscn") as PackedScene).instantiate()
-		for instance in meshes:
-			var baked_mesh := reference.get_node_or_null("Geometry/" + str(instance.name)) as MeshInstance3D
-			if baked_mesh == null:
-				continue
-			var replacement := baked_mesh.mesh.duplicate() as ArrayMesh
-			for side in replacement.get_surface_count():
-				replacement.surface_set_material(side, instance.mesh.surface_get_material(side))
-			instance.mesh = replacement
-		reference.free()
-	if is_instance_valid(native) and native.load_lightmap("res://generated/native_reference.lmbake"):
-		_set_mode(4)
-	else:
-		_hint.text = "Lightmap reference is not baked. Run tools/validate.ps1 -BakeLightmap.\n" + _hint.text
 
 func _wait_frames(count: int = 8) -> void:
 	for i in count:
@@ -614,11 +580,6 @@ func _validate() -> void:
 		await _capture(folder.path_join("voxel.png"))
 		_report["native"] = native.status()
 		_set_mode(1)
-	if _args.has("lightmap"):
-		_enable_lightmap()
-		await _capture(folder.path_join("lightmap.png"))
-		_report["lightmap_loaded"] = mode == 4
-		_set_mode(1)
 	# Fixed-length warm dynamic update sample, with camera and resolution held fixed.
 	var gpu_frames: Array[float] = []
 	var cpu_frames: Array[float] = []
@@ -668,44 +629,6 @@ func _image_energy(image: Image) -> float:
 			var c := image.get_pixel(x, y)
 			total += c.r + c.g + c.b
 	return total
-
-func _export_native_scene(path: String) -> void:
-	_set_mode(0)
-	for instance in meshes:
-		for side in instance.mesh.get_surface_count():
-			var material := StandardMaterial3D.new()
-			material.albedo_color = layout.boxes[meshes.find(instance)].color
-			var box: Dictionary = layout.boxes[meshes.find(instance)]
-			material.emission_enabled = float(box.get("emission_energy", 0.0)) > 0.0
-			material.emission = box.get("emission_color", Color.BLACK)
-			material.emission_energy_multiplier = float(box.get("emission_energy", 0.0))
-			material.roughness = 1.0
-			material.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT
-			material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-			instance.mesh.surface_set_material(side, material)
-		instance.mesh.lightmap_unwrap(Transform3D.IDENTITY, 0.2)
-	for light in lamps:
-		light.light_bake_mode = Light3D.BAKE_DYNAMIC
-	if is_instance_valid(native):
-		native.prepare_lightmap("res://generated/native_reference.lmbake")
-	var duplicate := duplicate() as Node3D
-	duplicate.set_script(null)
-	var hud := duplicate.get_node_or_null("HUD")
-	if hud:
-		hud.free()
-	_set_owner_recursive(duplicate, duplicate)
-	var packed := PackedScene.new()
-	var error := packed.pack(duplicate)
-	if error == OK:
-		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
-		error = ResourceSaver.save(packed, path)
-	duplicate.free()
-	print("NATIVE_SCENE_EXPORT ", error, " ", path)
-
-func _set_owner_recursive(node: Node, root: Node) -> void:
-	for child in node.get_children():
-		child.owner = root
-		_set_owner_recursive(child, root)
 
 func _on_cache_failed(message: String) -> void:
 	push_error("Sparse GI failed: " + message)
