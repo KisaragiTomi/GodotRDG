@@ -33,17 +33,13 @@ func _input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
 			if event.pressed:
 				looking = true
-				camera.projection = Camera3D.PROJECTION_PERSPECTIVE
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			else:
 				release_mouse()
 			get_viewport().set_input_as_handled()
 		elif event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			var direction := 1.0 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1.0
-			if camera.projection == Camera3D.PROJECTION_ORTHOGONAL:
-				camera.size = clampf(camera.size - direction, 1.0, 80.0)
-			else:
-				speed = clampf(speed + direction * speed_scroll_step, min_speed, max_speed)
+			speed = clampf(speed + direction * speed_scroll_step, min_speed, max_speed)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and looking:
 		var angles := camera.rotation

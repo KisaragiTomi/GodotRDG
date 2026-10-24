@@ -67,10 +67,10 @@ CPU 耗时（16 个工作线程；256 pass 的图分 8 个录制任务，取多�
 | `demo/` | Demo 场景和 UI 脚本 |
 | `modules/tg_gi/` | `TGScreenGI`（稀疏 GI，含历史捕获 `TGScreenGIHistory`）和 `TGSurfaceFog`（雾合成），UE 写法的 RDG pass |
 | `shaders/tg/` | `TGScreenGI.glsl`、`TGSurfaceFog.glsl`，虚拟路径 `/Project/tg/...`；目录带 `.gdignore` |
-| `shaders/`（其余）、`scripts/`、`scenes/`、`assets/`、`legacy_rc/` | 迁入的 GI / 雾演示：场景、GDScript（大气 `TGAtmosphere`、各演示）、材质 shader、旧盒体 GI 与 RC 副本、Kenney 城市模型 |
+| `shaders/`（其余）、`scripts/`、`scenes/`、`assets/`、`legacy_rc/` | 迁入的 GI / 雾演示：场景、GDScript（大气 `TGAtmosphere`、各演示）、材质 shader、旧 RC 副本、Kenney 城市模型 |
 | `generated/`、`assets/sponza/glTF/` | Sponza 模型与预处理的 BVH / 材质数据，由 `tools/download-sponza.py` 和 `tools/prepare-sponza.ps1` 生成，不进仓库 |
 | `docs/` | README 用的图；迁入的 GI / 雾文档（`TG_SCREEN_GI.md`、`TG_ATMOSPHERE.md`、`CITY_SCENE.md` 等）；目录带 `.gdignore` |
-| `tests/run_tests.gd` | 命令行跑 RDG 自测；`tests/` 下其余脚本是旧盒体 GI 的测试 |
+| `tests/run_tests.gd` | 命令行跑 RDG 自测 |
 | `tools/build_engine.bat` | 编译带本模块的编辑器 |
 | `tools/open-editor.ps1` | 用这个构建打开本项目的编辑器 |
 | `addons/rdg_engine_check/` | 编辑器插件：编辑器里没有本模块的类时（例如双击 `project.godot` 打开了普通 Godot）弹窗说明原因 |
@@ -160,7 +160,7 @@ Console 变量也可以从命令行设置，写在 `--` 之后：
 
 ## TG GI 与大气雾
 
-从 Godot-TopDown-GI（Godot Sparse GI）迁入：支持自由相机的实时漫反射 GI 和阳光体积雾，以及城市、Sponza、拱廊、旧盒体 GI 等演示。原项目的 GI 和雾合成是 GDScript + RD 的 CompositorEffect，迁入时改写为引擎模块 `modules/tg_gi` 里的 UE 写法 RDG 代码，GDScript 接口不变（`sponza_lab.gd` 等照常调用）。算法和历次验证记录见 [TG 实现说明](docs/TG_SCREEN_GI.md)、[大气雾说明](docs/TG_ATMOSPHERE.md)、[城市场景](docs/CITY_SCENE.md)。
+从 Godot-TopDown-GI（Godot Sparse GI）迁入：支持自由相机的实时漫反射 GI 和阳光体积雾，以及城市、Sponza、拱廊等演示。原项目的 GI 和雾合成是 GDScript + RD 的 CompositorEffect，迁入时改写为引擎模块 `modules/tg_gi` 里的 UE 写法 RDG 代码，GDScript 接口不变（`sponza_lab.gd` 等照常调用）。算法和历次验证记录见 [TG 实现说明](docs/TG_SCREEN_GI.md)、[大气雾说明](docs/TG_ATMOSPHERE.md)、[城市场景](docs/CITY_SCENE.md)。
 
 ![Sponza 自由相机平视：稀疏追踪、后期降噪与 GPU 阶段耗时](docs/images/gi-free-camera.png)
 
@@ -205,7 +205,6 @@ python -m venv .venv
 | `./tools/run-tg.ps1` | Sponza + TG GI；`-Atmosphere` 加大气预设（雾 + 共享天空光），`-Sampling Adaptive / Quality`、`-BasicFilter`、`-WorldCache`、`-NoSky` |
 | `./tools/run-city.ps1` | 城市大气场景（Kenney 模型，约 464×464 米） |
 | `./tools/run-atmosphere.ps1` | 拱廊阳光体积雾，不需要 Sponza |
-| `./tools/run-lab.ps1`、`run-ball.ps1`、`run-emissive.ps1` | 旧的盒体世界空间表面缓存 GI 对照实验（`4` 是运行时烘焙的 VoxelGI 对照） |
 
 各脚本加 `-Capture` 运行自动检查并保存截图到 `artifacts/`（目录带 `.gdignore`，Godot 不导入其中的截图）。`F1` / `F2` / `F3` 在城市、Sponza（GI + 雾）、拱廊之间切换，左下角显示雾和 GI 各自的 GPU 耗时。所有演示共用自由相机，按键与通用飞行相机（`%GODOT_SOURCE%\misc\shared_scripts\fly_camera.gd`）一致：按住鼠标右键转向，`WASD` 移动，`E` / `Space` 上升，`Q` 下降，`Shift` 2.5 倍速，滚轮调移动速度；`P` 恢复观察预设，`R` 复位。
 
@@ -219,7 +218,7 @@ RTX 5070 / Vulkan 1.4，1280×800，与原项目（GDScript 版，原项目自�
 - 截图逐像素对比（两边用同一份贴图导入缓存，否则 GPU 压缩贴图的差异会让纯直接光图也不同）：直接光图完全一致；GI、仅间接光、仅 BVH、无历史、移灯、遮挡板、移动相机等 8 张图的 MAE 不超过 0.0005（0–1 RGB），P99 为 0，与原版自己两次运行之间的差异（0.0002–0.0003）同一量级。
 - `run-tg.ps1 -Atmosphere -Capture`（表面辐射缓存 + `TGSurfaceFog` 合成）：结果 JSON（包括 GPU 计数器）与原版完全相同，三张截图逐像素一致。
 - `tools/` 下的全部验证在本项目的引擎构建上通过（2026-10-23）：`validate-tg-fog-history`、`validate-tg-sky`、`validate-tg-world-cache`、`validate-tg-camera`、`validate-tg-adaptive`、`validate-tg-post`、`validate-tg-noise`、`validate-atmosphere-quality`、`validate-city-fog`、`validate-bvh`，`run-atmosphere` / `run-city` / `run-sponza -Capture`，`validate-tg-timing.gd`、`validate-viewer.gd`、`validate-free-camera.gd`，以及旧表面缓存 GI 的 `validate.ps1 -BakeLightmap -Emissive -Ball`。旧实验脚本显式打开 `res://scenes/lab.tscn`，因为本项目的主场景是 RDG Demo。
-- 2026-10-24 删除了离线烘焙的 GI 方案：Sponza 的 UV2 网格表面缓存 GI（`run-sponza.ps1`）和 LightmapGI 参考（`validate.ps1 -BakeLightmap`、`native_baselines` 烘焙插件）。`prepare-sponza.ps1` 只生成 TG 用的 BVH 与材质数据，重新生成后三角形集合、BVH 节点数（86,737）和材质与之前一致，TG 的 GPU 耗时与旧数据相同。
+- 2026-10-24 删除了离线烘焙的 GI 方案：Sponza 的 UV2 网格表面缓存 GI（`run-sponza.ps1`）和 LightmapGI 参考（`validate.ps1 -BakeLightmap`、`native_baselines` 烘焙插件）。`prepare-sponza.ps1` 只生成 TG 用的 BVH 与材质数据，重新生成后三角形集合、BVH 节点数（86,737）和材质与之前一致，TG 的 GPU 耗时与旧数据相同。同日还删除了旧的盒体实验室（表面缓存 GI、发光面 / 发光球演示、运行时烘焙的 VoxelGI 对照，`run-lab` / `run-ball` / `run-emissive.ps1`、`validate.ps1` 和对应测试）。
 
 ### 已知限制
 

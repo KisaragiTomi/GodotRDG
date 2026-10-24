@@ -20,7 +20,7 @@
 
 `./tools/validate-bvh.ps1` 运行 BVH 的暴力求交对照测试与四次顺序 GPU A/B。新准备流程默认 SAH，`prepare-sponza.ps1 -Bvh median` 保留旧方案。已有缓存可用 `python tools/triangle_bvh.py --method sah --output artifacts/bvh/sah` 单独构建备用加速数据，再用 `run-tg.ps1 -BvhDirectory artifacts/bvh/sah` 运行。计时、固定射线 SH/截图等价性与结果在 `artifacts/bvh/`。
 
-所有交互演示的相机按键与通用飞行相机（`%GODOT_SOURCE%\misc\shared_scripts\fly_camera.gd`）一致：按住右键转向，WASD 移动，E/Space 上升、Q 下降，Shift 加速，滚轮调移动速度；P 恢复观察预设。释放右键或失焦释放鼠标，捕获时 Esc 先释放、再按退出。盒体演示的正交俯视预设里滚轮缩放视野，右键自动切入透视。
+所有交互演示的相机按键与通用飞行相机（`%GODOT_SOURCE%\misc\shared_scripts\fly_camera.gd`）一致：按住右键转向，WASD 移动，E/Space 上升、Q 下降，Shift 加速，滚轮调移动速度；P 恢复观察预设。释放右键或失焦释放鼠标，捕获时 Esc 先释放、再按退出。
 
 自由相机输入与 TG 非俯视角 GPU 集成检查：
 
@@ -43,10 +43,4 @@ $godot = & ./tools/resolve-godot.ps1
 
 `./tools/prepare-sponza.ps1 -Python <python.exe>` 重新生成 TG 用的三角形 BVH 和材质数据（需要 numpy），不烘焙任何光照；Sponza 网格或材质改动后才需要重跑。
 
-在项目根目录运行 `./tools/run-lab.ps1` 打开盒体交互演示，`4` 在运行时烘焙原生 VoxelGI 作对照（`scripts/native_baselines.gd`）。`./tools/validate.ps1` 依次导入、运行封闭薄墙 GPU 回归、实际材质 shader 回归及完整场景截图/性能采样（含 VoxelGI 对照）。全部通过后返回 0；日志含 Godot 脚本/引擎错误也会判定失败。
-
-默认 256 rays，支持 `-Rays 16..512`。`-Backend vulkan` 为本轮验证后端。`-Backend d3d12` 只提供启动选项，未进行本轮质量/性能验收。`--headless` 仅用于导入和语法检查，不能代替 GPU 检查。
-
-`./tools/run-emissive.ps1` 打开发光面演示；`./tools/validate.ps1 -Emissive` 追加自发光辐射量、近场重建及开关灯验证。演示捕获包括固定俯视全景和 `emissive_detail.png` 近景。直接启动项目时传入 `--coarse-emitter-receivers` 可关闭近发光体墙面的局部细化，用于同参数 A/B。
-
-`./tools/run-ball.ps1` 打开可控制的自发光球：方向键移动、PgUp/PgDn 升降、Shift 加速、R 复位小球、C 改色、T 开关、+/- 强度；相机使用上述自由观察控制。`./tools/validate.ps1 -Ball` 增加球形辐射/遮挡 GPU 测试与输入、移动、碰撞、变色和开关回归。球模式的原生 VoxelGI / LightmapGI 快捷键禁用，避免静态对照误用于动态光源。
+`--headless` 仅用于导入和语法检查，不能代替 GPU 检查。
