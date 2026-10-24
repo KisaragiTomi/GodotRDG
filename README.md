@@ -2,6 +2,8 @@
 
 在 Godot 4.6 中复刻 UE 的 Render Dependency Graph（RDG），以引擎模块 `modules/rdg` 的形式实现。API 命名、写法和行为尽量与 UE 5 的 `RenderCore` 一致，pass 代码基本可以按 UE 的习惯直接写：`FRDGBuilder`、`BEGIN_SHADER_PARAMETER_STRUCT`、`FGlobalShader`、`FComputeShaderUtils::AddPass`、`FPixelShaderUtils::AddFullscreenPass`、`RDG_EVENT_SCOPE`、`QueueTextureExtraction` 等。
 
+仓库里还有一个建在 RDG 上的完整用例：从 Godot-TopDown-GI（Godot Sparse GI）迁入的 TG 风格稀疏 GI 与阳光体积雾（引擎模块 `modules/tg_gi`），连同城市、Sponza、拱廊等场景，见 [TG GI 与大气雾](#tg-gi-与大气雾)。
+
 ## 概览
 
 RDG 建在 `RenderingDevice`（RD）之上，形成两层图：
@@ -63,10 +65,15 @@ CPU 耗时（16 个工作线程；256 pass 的图分 8 个录制任务，取多�
 | `modules/rdg/Demo/` | `RDGCompositorEffect`，用 UE 写法实现的 CompositorEffect |
 | `shaders/rdg_demo/` | Demo 的 GLSL，虚拟路径 `/Project/rdg_demo/...`；目录带 `.gdignore`，不让编辑器把它当 RDShaderFile 导入 |
 | `demo/` | Demo 场景和 UI 脚本 |
-| `docs/` | README 用的图（`rdg_vs_godot_rd.svg`、`demo.png`）；目录带 `.gdignore` |
-| `tests/run_tests.gd` | 命令行跑自测 |
+| `modules/tg_gi/` | `TGScreenGI`（稀疏 GI，含历史捕获 `TGScreenGIHistory`）和 `TGSurfaceFog`（雾合成），UE 写法的 RDG pass |
+| `shaders/tg/` | `TGScreenGI.glsl`、`TGSurfaceFog.glsl`，虚拟路径 `/Project/tg/...`；目录带 `.gdignore` |
+| `shaders/`（其余）、`scripts/`、`scenes/`、`assets/`、`addons/`、`legacy_rc/` | 迁入的 GI / 雾演示：场景、GDScript（大气 `TGAtmosphere`、各演示）、材质 shader、旧盒体 GI 与 RC 副本、Kenney 城市模型 |
+| `generated/`、`assets/sponza/glTF/` | Sponza 模型与预处理的 BVH / 材质数据，由 `tools/download-sponza.py` 和 `tools/prepare-sponza.ps1` 生成，不进仓库 |
+| `docs/` | README 用的图；迁入的 GI / 雾文档（`TG_SCREEN_GI.md`、`TG_ATMOSPHERE.md`、`CITY_SCENE.md` 等）；目录带 `.gdignore` |
+| `tests/run_tests.gd` | 命令行跑 RDG 自测；`tests/` 下其余脚本是旧盒体 GI 的测试 |
 | `tools/build_engine.bat` | 编译带本模块的编辑器 |
-| `engine/rdg-engine.patch` | 引擎补丁（基于 4.6.1-stable `14d1969`）：RD 的内存堆、放置式资源、别名依赖、async compute 队列、录制上下文和并行翻译；目录带 `.gdignore` |
+| `tools/*.ps1`、`tools/*.py` | GI / 雾演示的启动、验证和对比脚本（`run-tg.ps1`、`validate-tg-*.ps1` 等），见 [tools/README.md](tools/README.md) |
+| `engine/rdg-engine.patch` | 引擎补丁（基于 4.6.1-stable `14d1969`）：RD 的内存堆、放置式资源、别名依赖、async compute 队列、录制上下文和并行翻译，以及给 `TGSurfaceFog` 用的原生体积雾接口；目录带 `.gdignore` |
 
 ## 编译
 
@@ -140,6 +147,74 @@ Console 变量也可以从命令行设置，写在 `--` 之后：
 ```bat
 "%GODOT_SOURCE%\..\godot-rdg\bin\godot.windows.editor.x86_64.rdg.console.exe" --path . --rendering-driver vulkan -- --measure-translate=8
 ```
+
+## TG GI 与大气雾
+
+从 Godot-TopDown-GI（Godot Sparse GI）迁入：支持自由相机的实时漫反射 GI 和阳光体积雾，以及城市、Sponza、拱廊、旧盒体 GI 等演示。原项目的 GI 和雾合成是 GDScript + RD 的 CompositorEffect，迁入时改写为引擎模块 `modules/tg_gi` 里的 UE 写法 RDG 代码，GDScript 接口不变（`sponza_lab.gd` 等照常调用）。算法和历次验证记录见 [TG 实现说明](docs/TG_SCREEN_GI.md)、[大气雾说明](docs/TG_ATMOSPHERE.md)、[城市场景](docs/CITY_SCENE.md)。
+
+![Sponza 自由相机平视：稀疏追踪、后期降噪与 GPU 阶段耗时](docs/images/gi-free-camera.png)
+
+### RDG 写法
+
+`TGScreenGI` 在不透明 pass 之前执行（材质在不透明 pass 中采样它的 `sh_texture` / `position_texture` / `normal_texture`），`history_effect` 在不透明 pass 之后保存本帧的辐射度和深度。原版一个 shader 用 specialization constant 分 12 个阶段，所有阶段共用一个 37 个 binding 的 descriptor set；RDG 版每个阶段一个 `FGlobalShader`（`shaders/tg/TGScreenGI.glsl` 的一个入口），每个入口只声明自己读写的资源：
+
+| Pass | Shader | 读 | 写 |
+| --- | --- | --- | --- |
+| Guide | `FTGGuideCS` | 深度、法线 | `GuidePosition` / `GuideNormal`（半分辨率） |
+| Budget（自适应采样） | `FTGBudgetCS` | 引导、上一帧统计 | `RayBudget` |
+| Trace | `FTGTraceCS`（排列：自适应、世界缓存） | 引导、深度、上一帧辐射度、BVH、材质贴图数组 | `CandidateColor` / `CandidateDirection`（2D 数组，每层一条射线） |
+| Project（非稀疏采样） | `FTGProjectCS` | 候选 | `CandidateSH` |
+| Reconstruct | `FTGReconstructCS`（排列：稀疏） | 候选、上一帧 SH / 年龄 / 矩 | SH、年龄、矩 |
+| Filter ×4 / BasicFilter | `FTGFilterCS`（排列：级别 3/6/7/8）/ `FTGBasicFilterCS` | SH 或上一级 | 下一级 → 最终 `Filtered` + 显示引导 |
+| WorldCacheSelect / Resolve | `FTGCacheSelectCS` / `FTGCacheResolveCS` | 引导、`Filtered` | 世界缓存（持久缓冲） |
+| History（不透明 pass 之后） | `FTGHistoryCS`（排列：表面历史） | 场景颜色、深度 | 下一帧用的颜色 / 深度历史 |
+
+- 所有 pass 共用一个参数结构体 `FTGScreenGIParameters`，帧常量放在 uniform buffer `TGView`。每个 pass 都填同一组帧级输入，由 `FComputeShaderUtils::AddPass` 的 `ClearUnusedGraphResources` 按该 shader 的声明清掉不用的成员，所以 RDG 推导出的依赖就是真实的读写关系。
+- 候选、预算、各级滤波和方差纹理是 RDG 瞬态资源，由 transient heap 分配并共享显存。引导、SH、年龄、矩和颜色 / 深度历史用 `QueueTextureExtraction` 提取，下一帧再 `RegisterExternalTexture`，与 UE 的 view state 历史写法相同。窗口尺寸改变后没有可用历史时，读到的是清零的纹理，与原版新建的零纹理等价。
+- 材质引用的三张纹理（`Filtered`、显示用位置 / 法线）是 `AllocatePooledTexture` 分配的持久纹理，只在尺寸改变时重建，保证 `Texture2DRD` 的身份不变。BVH、三角形、材质缓冲和贴图数组是普通 RD 资源，每帧作为外部资源注册。
+- 各阶段 GPU 计时用新加的 `RDG_GPU_STAT_SCOPE`（`r.RDG.GPUStats`），时间戳名与原版相同（`TG pass trace begin` 等），统一面板和验证脚本无需改动。
+- `TGSurfaceFog` 是一个 `FPixelShaderUtils::AddFullscreenPass`：把 Godot 原生体积雾的 froxel 纹理（引擎补丁的 `RenderSceneBuffersRD::get_volumetric_fog_texture()`）以 `S + T × surface` 混合到原来的（MSAA）颜色附件上，在天空和透明物体之前执行。MSAA 时用 `gl_SampleID` 逐样本执行。
+- `TGAtmosphere`（雾的密度、散射与天空源项）仍是 GDScript + `FogVolume` 的 fog shader，由 Godot 原生体积雾积分，不经过 RDG。
+
+### 首次运行
+
+需要 Python 3.11+（`tools/requirements.txt`）和本项目的引擎构建（见[编译](#编译)）。启动脚本通过 `tools/resolve-godot.ps1` 找 `%GODOT_SOURCE%\..\godot-rdg\bin\` 下的 rdg 构建，也可以用 `GODOT_EXE` 指定。城市和拱廊不需要下载；Sponza 需要先下载模型并生成 BVH 与材质数据（只是静态几何加速数据，不烘焙照明）：
+
+```powershell
+python -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r tools/requirements.txt
+./.venv/Scripts/python.exe tools/download-sponza.py
+./tools/prepare-sponza.ps1 -Python ./.venv/Scripts/python.exe
+./tools/run-tg.ps1
+```
+
+### 运行
+
+| 命令 | 场景 |
+| --- | --- |
+| `./tools/run-tg.ps1` | Sponza + TG GI；`-Atmosphere` 加大气预设（雾 + 共享天空光），`-Sampling Adaptive / Quality`、`-BasicFilter`、`-WorldCache`、`-NoSky` |
+| `./tools/run-city.ps1` | 城市大气场景（Kenney 模型，约 464×464 米） |
+| `./tools/run-atmosphere.ps1` | 拱廊阳光体积雾，不需要 Sponza |
+| `./tools/run-sponza.ps1`、`run-lab.ps1`、`run-ball.ps1`、`run-emissive.ps1` | 旧的世界空间表面缓存 GI 对照实验 |
+
+各脚本加 `-Capture` 运行自动检查并保存截图到 `artifacts/`（目录带 `.gdignore`，Godot 不导入其中的截图）。`F1` / `F2` / `F3` 在城市、Sponza（GI + 雾）、拱廊之间切换，左下角显示雾和 GI 各自的 GPU 耗时。所有演示共用自由相机：按住鼠标右键转向，`WASD` 沿视线移动，`Space` / `Ctrl` 升降，`Shift` 加速，滚轮前后移动；`P` 恢复观察预设，`R` 复位。
+
+Sponza TG 按键：`1` / `2` 无 GI / TG，`3` 只走 BVH，`4` 仅间接光，`5` 关闭 GI 历史，`6` 切换稀疏 / 自适应 / 高采样预算，`7` 切换后期降噪与基础滤波，`8` 开关天空光，`9` 开关世界缓存，`B` 移动遮挡板，方向键和 `Q` / `Z` 移灯。城市：`P` 或 `1` / `2` / `3` 切换航拍、街道、广场，`F` 开关雾，`V` 切换雾的采样质量，方向键转太阳。
+
+### 迁移验证
+
+RTX 5070 / Vulkan 1.4，1280×800，与原项目（GDScript 版，原项目自带的 fog 引擎）同条件对照：
+
+- `run-tg.ps1 -Capture`（Sponza，默认稀疏采样）全部检查通过：重投影、尺寸变化、移灯、遮挡板、关灯归零、TAA 历史都正常。GI GPU 中位数 1.19 ms，原版 1.21 ms；视口 GPU 2.30 ms，原版 2.38 ms。
+- 截图逐像素对比（两边用同一份贴图导入缓存，否则 GPU 压缩贴图的差异会让纯直接光图也不同）：直接光图完全一致；GI、仅间接光、仅 BVH、无历史、移灯、遮挡板、移动相机等 8 张图的 MAE 不超过 0.0005（0–1 RGB），P99 为 0，与原版自己两次运行之间的差异（0.0002–0.0003）同一量级。
+- `run-tg.ps1 -Atmosphere -Capture`（表面辐射缓存 + `TGSurfaceFog` 合成）：结果 JSON（包括 GPU 计数器）与原版完全相同，三张截图逐像素一致。
+- `tools/` 下的全部验证在本项目的引擎构建上通过（2026-10-23）：`validate-tg-fog-history`、`validate-tg-sky`、`validate-tg-world-cache`、`validate-tg-camera`、`validate-tg-adaptive`、`validate-tg-post`、`validate-tg-noise`、`validate-atmosphere-quality`、`validate-city-fog`、`validate-bvh`，`run-atmosphere` / `run-city` / `run-sponza -Capture`，`validate-tg-timing.gd`、`validate-viewer.gd`、`validate-free-camera.gd`，以及旧表面缓存 GI 的 `validate.ps1 -BakeLightmap -Emissive -Ball`。旧实验脚本显式打开 `res://scenes/lab.tscn`，因为本项目的主场景是 RDG Demo。
+
+### 已知限制
+
+- `TGScreenGI` / `TGSurfaceFog` 现在是引擎类，原项目的 GDScript 同名类不能再在这个引擎上加载；标准 Godot 也不能运行这些场景，需要本项目的引擎构建。
+- `read_debug()` 读取的候选纹理是瞬态资源：默认要等下一帧把它们提取出来（多一帧延迟）。验证和截图脚本会打开 `debug_readback`，每帧提取，读取时与原版一样立即返回。
+- GI shader 以文件方式从带 `.gdignore` 的 `res://shaders/tg/` 读取，导出项目时需要把它加入导出的非资源文件。
 
 ## 写一个 RDG Pass
 
@@ -251,6 +326,7 @@ void AddValueCS() { /* ... */ }
 | `AddClearUAVPass`、`AddCopyTexturePass`、`AddCopyBufferPass`、`AddClearRenderTargetPass` | 已实现 | |
 | `FRHIGPUBufferReadback` / `FRHIGPUTextureReadback`、`AddEnqueueCopyPass` | 已实现 | 基于 `buffer/texture_get_data_async` |
 | `RDG_EVENT_SCOPE`、`RDG_EVENT_NAME` | 已实现 | 生成 `图名/作用域/Pass` 形式的 RD label（RenderDoc 可见） |
+| `DECLARE_GPU_STAT(_NAMED)`、`RDG_GPU_STAT_SCOPE` | 已实现 | 作用域内的 pass 用 RD 时间戳计时（`r.RDG.GPUStats`），结果从 `RenderingDevice.get_captured_timestamp_*` 读；没有 UE 的 stat 汇总界面 |
 | `FRDGBlackboard`、`RDG_REGISTER_BLACKBOARD_STRUCT` | 已实现 | |
 | 校验（读未写资源、lambda 访问未声明资源、提取未生产资源、pass 标志、RT 打包） | 已实现 | 报错文本沿用 UE 原文 |
 | Immediate 模式、`r.RDG.DumpGraph` | 已实现 | 导出到 `user://rdg/*.dot` |
@@ -286,6 +362,7 @@ void AddValueCS() { /* ... */ }
 | `r.RDG.Validation` | `1` | 校验开关 |
 | `r.RDG.DumpGraph` | `0` | `1` 每张图都导出，`2` 导出下一张后自动归零 |
 | `r.RDG.Events` | `1` | 为每个 pass 发 RD debug label |
+| `r.RDG.GPUStats` | `1` | 用 RD 时间戳给每个 `RDG_GPU_STAT_SCOPE` 计时，名字为 `"<Stat> begin"` / `"<Stat> end"`（`RenderingDevice.get_captured_timestamp_*`，晚一帧可读）。async compute 队列上的 pass 和并行录制的 pass 不计时 |
 | `r.RDG.ResourcePool.FramesUntilRelease` | `30` | 空闲池元素保留帧数 |
 | `r.RDG.Cache.FramesUntilRelease` | `120` | 未使用的 uniform set / framebuffer 缓存保留帧数 |
 | `r.RDG.ShaderCompileCache` | `1` | 使用 Godot 的 SPIR-V 编译缓存 |

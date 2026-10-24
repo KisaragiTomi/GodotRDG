@@ -641,6 +641,61 @@ index c53ac31..ba1853e 100644
  	PagedAllocator<VersatileResource, true> resources_allocator;
  
  	/******************/
+diff --git a/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.cpp b/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.cpp
+index 45fe456..64119a9 100644
+--- a/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.cpp
++++ b/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.cpp
+@@ -31,6 +31,8 @@
+ #include "render_scene_buffers_rd.h"
+ #include "render_scene_buffers_rd.compat.inc"
+ 
++#include "servers/rendering/renderer_rd/environment/fog.h"
++
+ #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
+ 
+ RenderSceneBuffersRD::RenderSceneBuffersRD() {
+@@ -45,6 +47,8 @@ RenderSceneBuffersRD::~RenderSceneBuffersRD() {
+ }
+ 
+ void RenderSceneBuffersRD::_bind_methods() {
++	ClassDB::bind_method(D_METHOD("get_volumetric_fog_texture"), &RenderSceneBuffersRD::get_volumetric_fog_texture);
++	ClassDB::bind_method(D_METHOD("get_volumetric_fog_parameters"), &RenderSceneBuffersRD::get_volumetric_fog_parameters);
+ 	ClassDB::bind_method(D_METHOD("has_texture", "context", "name"), &RenderSceneBuffersRD::has_texture);
+ 	ClassDB::bind_method(D_METHOD("create_texture", "context", "name", "data_format", "usage_bits", "texture_samples", "size", "layers", "mipmaps", "unique", "discardable"), &RenderSceneBuffersRD::create_texture);
+ 	ClassDB::bind_method(D_METHOD("create_texture_from_format", "context", "name", "format", "view", "unique"), &RenderSceneBuffersRD::_create_texture_from_format);
+@@ -78,6 +82,18 @@ void RenderSceneBuffersRD::_bind_methods() {
+ 	ClassDB::bind_method(D_METHOD("get_use_debanding"), &RenderSceneBuffersRD::get_use_debanding);
+ }
+ 
++RID RenderSceneBuffersRD::get_volumetric_fog_texture() const {
++	if (!data_buffers.has(RB_SCOPE_FOG)) return RID();
++	Ref<RendererRD::Fog::VolumetricFog> fog = get_custom_data(RB_SCOPE_FOG);
++	return fog.is_valid() ? fog->fog_map : RID();
++}
++
++Vector2 RenderSceneBuffersRD::get_volumetric_fog_parameters() const {
++	if (!data_buffers.has(RB_SCOPE_FOG)) return Vector2();
++	Ref<RendererRD::Fog::VolumetricFog> fog = get_custom_data(RB_SCOPE_FOG);
++	return fog.is_valid() ? Vector2(fog->length, fog->spread) : Vector2();
++}
++
+ void RenderSceneBuffersRD::update_sizes(NamedTexture &p_named_texture) {
+ 	ERR_FAIL_COND(p_named_texture.texture.is_null());
+ 
+diff --git a/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h b/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h
+index e2c2175..b823c84 100644
+--- a/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h
++++ b/servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h
+@@ -246,6 +246,9 @@ public:
+ 	void set_auto_exposure_version(const uint64_t p_auto_exposure_version) { auto_exposure_version = p_auto_exposure_version; }
+ 
+ 	// For our internal textures we provide some easy access methods.
++	// Borrowed native fog integration for compositor effects. Render-thread only.
++	RID get_volumetric_fog_texture() const;
++	Vector2 get_volumetric_fog_parameters() const;
+ 
+ 	_FORCE_INLINE_ bool has_internal_texture() const {
+ 		return has_texture(RB_SCOPE_BUFFERS, RB_TEX_COLOR);
 diff --git a/servers/rendering/rendering_device.cpp b/servers/rendering/rendering_device.cpp
 index 7f3cc88..7529281 100644
 --- a/servers/rendering/rendering_device.cpp

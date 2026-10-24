@@ -11,15 +11,30 @@ config_version=5
 [application]
 
 config/name="GodotRDG"
-config/description="UE-style Render Dependency Graph (RDG) for Godot 4.6, implemented as the engine module modules/rdg."
+config/description="UE-style Render Dependency Graph (RDG) for Godot 4.6 (engine module modules/rdg), with TG-style sparse GI and sunlit fog built on it (modules/tg_gi)."
 run/main_scene="res://demo/rdg_demo.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
+
+[autoload]
+
+DemoViewer="*res://scripts/demo_viewer.gd"
+
+[debug]
+
+settings/stdout/print_gpu_profile=true
 
 [display]
 
 window/size/viewport_width=1280
-window/size/viewport_height=720
+window/size/viewport_height=800
+window/vsync/vsync_mode=0
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/native_baselines/plugin.cfg")
 
 [rendering]
 
 rendering_device/driver.windows="vulkan"
+environment/volumetric_fog/volume_size=256
+environment/volumetric_fog/volume_depth=192

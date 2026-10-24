@@ -259,6 +259,7 @@ public:
 
 private:
 	friend class FRDGEventScopeGuard;
+	friend class FRDGGPUStatScopeGuard;
 	friend class FRDGUserValidation;
 	friend class FRDGGraphDumper;
 
@@ -302,6 +303,8 @@ private:
 	void CompileLifetimes();
 	void MergeRenderPasses();
 	void ExecutePass(FRDGPass *Pass);
+	/** Closes the active GPU stat and opens Stat with RenderingDevice timestamps (r.RDG.GPUStats). */
+	void SetActiveGPUStat(const FRDGGPUStat *Stat);
 	void ExecutePassPrologue(FRDGPass *Pass);
 	void ExecutePassEpilogue(FRDGPass *Pass);
 	void BeginRenderPass(FRDGPass *Pass, FRHICommandList &CommandList);
@@ -446,6 +449,9 @@ private:
 	LocalVector<FRDGViewableResource *> AccessModeQueue;
 
 	const FRDGEventScope *CurrentScope = nullptr;
+	const FRDGGPUStat *CurrentGPUStat = nullptr;
+	/** GPU stat whose begin timestamp was captured last during Execute() (closed when the stat changes). */
+	const FRDGGPUStat *ActiveGPUStat = nullptr;
 
 	/** Physical allocations seen during execution, for stats. */
 	HashMap<RID, uint32> PhysicalTextureUses;
@@ -468,4 +474,13 @@ inline FRDGEventScopeGuard::FRDGEventScopeGuard(FRDGBuilder &InGraphBuilder, FRD
 
 inline FRDGEventScopeGuard::~FRDGEventScopeGuard() {
 	if (bPushed) GraphBuilder.CurrentScope = GraphBuilder.CurrentScope->ParentScope;
+}
+
+inline FRDGGPUStatScopeGuard::FRDGGPUStatScopeGuard(FRDGBuilder &InGraphBuilder, const FRDGGPUStat &Stat) :
+		GraphBuilder(InGraphBuilder), ParentStat(InGraphBuilder.CurrentGPUStat) {
+	GraphBuilder.CurrentGPUStat = &Stat;
+}
+
+inline FRDGGPUStatScopeGuard::~FRDGGPUStatScopeGuard() {
+	GraphBuilder.CurrentGPUStat = ParentStat;
 }

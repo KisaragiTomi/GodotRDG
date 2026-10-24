@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1460" viewBox="0 0 1760 1460" role="img" aria-labelledby="title description">
+  <title id="title">当前 TopDown GI 方案：世界空间表面采样与缓存传输</title>
+  <desc id="description">根据 2026 年 9 月 24 日项目代码绘制。静态轴对齐盒表面被展开为 Atlas，并建立余弦加权半球命中缓存 T。自发光首次启用时建立解析面积贡献与采样可见率组合的形状因子缓存 F。灯光改变时计算直接出射 L0，传播两轮漫反射并累计间接入射 E 除以 π；自发光仅在第一轮通过 F 注入。材质通过 IRRADIANCE 接入，使用自身线性反射率。相机变化不更新 GI，几何变化需要显式整体重建。</desc>
+  <metadata>Sources: scripts/surface_layout.gd; scripts/surface_cache.gd; scripts/lab.gd; shaders/cache_transfer.glsl; shaders/cache_emitter_transfer.glsl; shaders/cache_direct.glsl; shaders/cache_bounce.glsl; shaders/surface.gdshader. This diagram documents the current default emitter_sampling path, not legacy RC or native GI baselines.</metadata>
+  <defs>
+    <style>
+      text { font-family: 'Segoe UI', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; fill: #1f3045; }
+      .title { font-size: 42px; font-weight: 700; letter-spacing: -1px; }
+      .subtitle { font-size: 21px; fill: #55677c; }
+      .eyebrow { font-size: 14px; font-weight: 600; letter-spacing: 2.2px; fill: #087f8c; }
+      .section { font-size: 24px; font-weight: 650; }
+      .section-num { font-size: 18px; font-weight: 700; fill: #087f8c; }
+      .h { font-size: 23px; font-weight: 650; }
+      .subh { font-size: 20px; font-weight: 650; }
+      .body { font-size: 18px; }
+      .small { font-size: 16px; fill: #55677c; }
+      .code { font-family: Consolas, 'Courier New', monospace; font-size: 14px; fill: #62738a; }
+      .formula { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; font-size: 25px; font-weight: 600; }
+      .teal { fill: #087f8c; }
+      .amber { fill: #a7640d; }
+      .muted { fill: #55677c; }
+      .panel { fill: #ffffff; stroke: #dbe3ea; stroke-width: 1.4; }
+      .line { fill: none; stroke: #a5b3c1; stroke-width: 1.4; }
+      .flow { fill: none; stroke: #576b80; stroke-width: 2; stroke-linejoin: round; }
+      .warm-flow { fill: none; stroke: #b67b23; stroke-width: 2; stroke-linejoin: round; }
+    </style>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L8 4.5 L1 8" fill="none" stroke="#576b80" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="warm-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L8 4.5 L1 8" fill="none" stroke="#b67b23" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="10" cy="10" r="2.5" fill="#6d9f9f"/></pattern>
+    <pattern id="fine-dots" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="1.8" fill="#34898c"/></pattern>
+    <pattern id="atlas-grid" width="14" height="14" patternUnits="userSpaceOnUse"><path d="M14 0H0V14" stroke="#ffffff" stroke-width="1" fill="none"/></pattern>
+  </defs>
+
+  <rect width="1760" height="1460" fill="#f6f8fb"/>
+  <rect x="56" y="50" width="5" height="98" rx="2" fill="#087f8c"/>
+  <text x="80" y="67" class="eyebrow">GODOT TOPDOWN GI / IMPLEMENTATION MAP</text>
+  <text x="80" y="116" class="title">世界空间表面 GI</text>
+  <text x="80" y="150" class="subtitle">表面采样与缓存传输 · 静态几何 · 按光照变化更新</text>
+  <text x="1704" y="83" text-anchor="end" class="body">Godot 4.6 · Forward+ · RenderingDevice</text>
+  <text x="1704" y="115" text-anchor="end" class="small">固定俯视 3D ／ 相机无关 ／ 两轮有限漫反射</text>
+  <text x="1704" y="146" text-anchor="end" class="small">当前默认路径 · 代码快照 2026-09-24</text>
+
+  <!-- 01: Surface layout and reusable, geometry-dependent transport. -->
+  <text x="56" y="198" class="section-num">01</text>
+  <text x="94" y="198" class="section">静态几何 → 可复用的传输缓存</text>
+  <text x="1704" y="198" text-anchor="end" class="small">初始化 / 几何变化时建立；不读取屏幕颜色或深度</text>
+
+  <rect x="56" y="220" width="454" height="314" rx="14" class="panel"/>
+  <text x="80" y="256" class="h">真实盒表面上的采样点</text>
+  <text x="80" y="284" class="small">地板、墙面、台阶、桥面与桥底</text>
+  <g aria-label="盒表面采样示意，点为表面采样点；靠近发光体的竖直面整体细化" transform="translate(0 47) scale(1 .9)">
+    <path d="M86 413 L208 449 L302 396 L181 361 Z" fill="#e5edef" stroke="#9eafb8" stroke-width="1.3"/>
+    <path d="M86 413 L208 449 L302 396 L181 361 Z" fill="url(#dots)"/>
+    <path d="M181 361 L302 396 L302 313 L181 278 Z" fill="#d5e5e7" stroke="#9eafb8" stroke-width="1.3"/>
+    <path d="M181 361 L302 396 L302 313 L181 278 Z" fill="url(#fine-dots)"/>
+    <path d="M234 362 L259 369 L259 334 L234 327 Z" fill="#f1cc83" stroke="#ad7a2c" stroke-width="1.4"/>
+    <path d="M242 371 Q252 409 186 423" class="warm-flow" marker-end="url(#warm-arrow)"/>
+    <circle cx="185" cy="423" r="4" fill="#087f8c"/>
+    <path d="M185 416 L185 389" class="flow" marker-end="url(#arrow)"/>
+    <text x="195" y="393" class="small">n</text>
+  </g>
+  <text x="326" y="325" class="subh teal">0.25 m</text>
+  <text x="326" y="350" class="small">地面 / 向上面</text>
+  <text x="326" y="387" class="subh">0.5 m</text>
+  <text x="326" y="412" class="small">墙面等其他面</text>
+  <text x="80" y="483" class="body"><tspan font-weight="650" fill="#087f8c">0.125 m</tspan><tspan>　近发光体的竖直接收面</tspan></text>
+  <text x="80" y="510" class="small">距已声明发光盒 ≤ 0.5 m 且朝向它；整面细化</text>
+
+  <path d="M516 375H541" class="flow" marker-end="url(#arrow)"/>
+  <rect x="548" y="220" width="364" height="314" rx="14" class="panel"/>
+  <text x="572" y="256" class="h">Surface Layout</text>
+  <text x="572" y="284" class="small">每个盒面独立展开为 Chart</text>
+  <g aria-label="表面图集示意">
+    <rect x="572" y="306" width="164" height="112" rx="4" fill="#f0f4f6" stroke="#b8c6cf"/>
+    <rect x="577" y="311" width="92" height="69" fill="#b7dbd8"/>
+    <rect x="673" y="311" width="57" height="30" fill="#abc1d0"/>
+    <rect x="673" y="345" width="57" height="35" fill="#d2dce4"/>
+    <rect x="577" y="384" width="51" height="28" fill="#aac4d3"/>
+    <rect x="632" y="384" width="67" height="28" fill="#c0d6d4"/>
+    <rect x="577" y="311" width="153" height="101" fill="url(#atlas-grid)"/>
+  </g>
+  <text x="756" y="329" class="small">位置 / 法线</text>
+  <text x="756" y="357" class="small">线性反射率 ρ</text>
+  <text x="756" y="385" class="small">发光辐射 Le</text>
+  <text x="756" y="413" class="small">Atlas 区域</text>
+  <text x="572" y="457" class="body">剔除埋藏采样点</text>
+  <text x="572" y="484" class="small">被剔除点对应的几何仍参与遮挡</text>
+  <text x="572" y="513" class="code">surface_layout.gd</text>
+
+  <path d="M918 375H943" class="flow" marker-end="url(#arrow)"/>
+  <rect x="950" y="220" width="754" height="314" rx="14" class="panel"/>
+  <text x="974" y="256" class="h">静态 GPU 缓存</text>
+  <text x="1680" y="256" text-anchor="end" class="small">T、F 供下方光照传播读取</text>
+  <path d="M974 279H1680" class="line"/>
+  <rect x="974" y="300" width="34" height="34" rx="8" fill="#e0f0ef"/>
+  <text x="991" y="324" text-anchor="middle" class="subh teal">T</text>
+  <text x="1022" y="324" class="subh">半球命中记录</text>
+  <text x="1680" y="323" text-anchor="end" class="code">cache_transfer.glsl</text>
+  <text x="1022" y="357" class="body">余弦加权射线 → AABB 最近命中 → 可见采样中心</text>
+  <text x="1022" y="384" class="small">每点缓存 R 个 Atlas UV；miss 为零，仍计入总射线数 R</text>
+  <path d="M974 402H1680" stroke="#e7edf1"/>
+  <rect x="974" y="419" width="34" height="34" rx="8" fill="#fff0d9"/>
+  <text x="991" y="443" text-anchor="middle" class="subh amber">F</text>
+  <text x="1022" y="443" class="subh">面发光形状因子</text>
+  <text x="1680" y="442" text-anchor="end" class="code">cache_emitter_transfer.glsl</text>
+  <text x="1022" y="476" class="body">解析投影立体角 × 8×8 Gauss–Legendre 加权可见率</text>
+  <text x="1022" y="505" class="small">首次需要自发光时建立；覆盖全部接收点 × 盒面，之后复用</text>
+
+  <!-- 02: A finite, reset-on-update lighting solve. T and F refer to the caches above. -->
+  <text x="56" y="590" class="section-num">02</text>
+  <text x="94" y="590" class="section">光照变化 → 直接出射 + 两轮传播</text>
+  <text x="1704" y="590" text-anchor="end" class="small">默认 R = 256 ／ 自发光演示 R = 512 ／ GPU 依赖阶段间插入 barrier</text>
+
+  <rect x="56" y="638" width="270" height="208" rx="14" class="panel"/>
+  <rect x="56" y="638" width="270" height="5" rx="2" fill="#d5ad69"/>
+  <text x="78" y="680" class="h">直接出射 L₀</text>
+  <text x="78" y="721" class="formula">L₀ = ρ × D</text>
+  <text x="78" y="757" class="small">点光：衰减 × 余弦 × 遮挡</text>
+  <text x="78" y="785" class="small">最多 16 灯 · 使用当前参数</text>
+  <text x="78" y="823" class="code">cache_direct.glsl</text>
+
+  <path d="M331 734H370" class="flow" marker-end="url(#arrow)"/>
+  <text x="351" y="718" class="small" text-anchor="middle">L₀</text>
+  <rect x="376" y="638" width="284" height="208" rx="14" class="panel"/>
+  <rect x="376" y="638" width="284" height="5" rx="2" fill="#5daba9"/>
+  <text x="398" y="680" class="h">第 1 轮传播</text>
+  <text x="398" y="721" class="formula">B₁ = T(L₀) + F·Le</text>
+  <text x="398" y="757" class="formula">L₁ = ρ × B₁</text>
+  <text x="398" y="785" class="small">面发光仅在这一轮注入</text>
+  <text x="398" y="823" class="code">cache_bounce.glsl · pass 0</text>
+
+  <path d="M666 734H704" class="flow" marker-end="url(#arrow)"/>
+  <text x="685" y="718" class="small" text-anchor="middle">L₁</text>
+  <rect x="710" y="638" width="284" height="208" rx="14" class="panel"/>
+  <rect x="710" y="638" width="284" height="5" rx="2" fill="#5daba9"/>
+  <text x="732" y="680" class="h">第 2 轮传播</text>
+  <text x="732" y="721" class="formula">B₂ = T(L₁)</text>
+  <text x="732" y="757" class="formula">L₂ = ρ × B₂</text>
+  <text x="732" y="785" class="small">只传播上一轮的反射结果</text>
+  <text x="732" y="823" class="code">cache_bounce.glsl · pass 1</text>
+
+  <path d="M1000 734H1038" class="flow" marker-end="url(#arrow)"/>
+  <text x="1019" y="718" class="small" text-anchor="middle">B₂</text>
+  <rect x="1044" y="638" width="284" height="208" rx="14" fill="#edf6f5" stroke="#b5d6d3" stroke-width="1.4"/>
+  <text x="1066" y="680" class="h">间接入射 Atlas</text>
+  <text x="1066" y="721" class="formula teal">B = B₁ + B₂</text>
+  <text x="1066" y="757" class="body">存储累计间接入射 E / π</text>
+  <text x="1066" y="785" class="small">RGBA16F · 更新时重新求解</text>
+  <text x="1066" y="823" class="code">total_incoming</text>
+
+  <path d="M1334 734H1372" class="flow" marker-end="url(#arrow)"/>
+  <text x="1353" y="718" class="small" text-anchor="middle">B</text>
+  <rect x="1378" y="638" width="326" height="208" rx="14" class="panel"/>
+  <text x="1400" y="680" class="h">逐像素材质接入</text>
+  <text x="1400" y="721" class="body">Chart UV → 遮挡感知重建</text>
+  <text x="1400" y="757" class="formula">IRRADIANCE ← B</text>
+  <text x="1400" y="785" class="small">接收材质使用自身线性反射率</text>
+  <text x="1400" y="823" class="code">surface.gdshader</text>
+
+  <!-- B1 is accumulated independently of the propagation L1 -> B2. -->
+  <path d="M618 847V872H1186V852" class="flow" marker-end="url(#arrow)"/>
+  <rect x="876" y="859" width="133" height="26" rx="4" fill="#f6f8fb"/>
+  <text x="942" y="878" class="small" text-anchor="middle">B₁ 累加入 Atlas</text>
+
+  <rect x="56" y="907" width="604" height="136" rx="12" fill="#fff5e6" stroke="#ead8b9" stroke-width="1.2"/>
+  <text x="80" y="942" class="subh amber">面发光 Le</text>
+  <text x="80" y="974" class="body">颜色 / 强度变化 → 复用 F；第一轮显式加入 F·Le</text>
+  <text x="80" y="1007" class="small">当前路径的 L₀ 不包含 Le，后续不会反复注入同一发光项。</text>
+  <path d="M446 906V852" class="warm-flow" marker-end="url(#warm-arrow)"/>
+  <text x="460" y="898" class="small amber">Le</text>
+
+  <text x="710" y="936" class="subh">如何读取 T？</text>
+  <text x="710" y="973" class="formula">T(L) = Σ L(hitᵣ) / R</text>
+  <text x="710" y="1005" class="small">缓存命中 + nearest 读取；miss 为零。</text>
+  <text x="710" y="1033" class="small">出射纹理 A / B 乒乓交换；没有跨帧累积或历史降噪。</text>
+
+  <path d="M1541 852V900" class="flow" marker-end="url(#arrow)"/>
+  <rect x="1378" y="907" width="326" height="136" rx="12" fill="#eaf0f6"/>
+  <text x="1400" y="942" class="subh">最终画面</text>
+  <text x="1400" y="976" class="body">原生直接光 + ρ × B + Le</text>
+  <text x="1400" y="1008" class="small">漫反射关系示意，省略曝光与后处理</text>
+
+  <!-- 03: Invalidation behavior, filtering, and the actual supported scope. -->
+  <path d="M56 1090H1704" stroke="#d8e1e9" stroke-width="1.5"/>
+  <text x="56" y="1137" class="section-num">03</text>
+  <text x="94" y="1137" class="section">何时更新，以及当前边界</text>
+  <text x="56" y="1190" class="subh">更新规则</text>
+  <rect x="56" y="1214" width="67" height="27" rx="6" fill="#e0f0ef"/>
+  <text x="89.5" y="1233" class="small teal" text-anchor="middle">相机</text>
+  <text x="137" y="1234" class="body">平移 / 缩放 / 投影切换：0 次 GI dispatch</text>
+  <rect x="56" y="1252" width="67" height="27" rx="6" fill="#fff0d9"/>
+  <text x="89.5" y="1271" class="small amber" text-anchor="middle">光照</text>
+  <text x="137" y="1272" class="body">移灯 / 改色 / 调强度：重算第 02 段</text>
+  <rect x="56" y="1290" width="67" height="27" rx="6" fill="#e7edf3"/>
+  <text x="89.5" y="1309" class="small" text-anchor="middle">几何</text>
+  <text x="137" y="1310" class="body">开关门等变化：显式重建布局与传输</text>
+  <text x="56" y="1348" class="small">无变化时不 dispatch；光照变化检测最高 30 次 / 秒。</text>
+
+  <path d="M624 1173V1350" stroke="#dce4eb"/>
+  <text x="656" y="1190" class="subh">两处可见性检查，抑制跨墙串光</text>
+  <text x="656" y="1234" class="body">传输：在邻近 4 点中选最近的可见中心。</text>
+  <text x="656" y="1272" class="body">重建：拒绝跨遮挡 / 无效的双线性样本。</text>
+  <text x="656" y="1310" class="body">无有效样本返回零；欠采样角落可能偏暗。</text>
+  <text x="656" y="1348" class="small">无局部遮挡时走硬件 bilinear 快速路径。</text>
+
+  <path d="M1160 1173V1350" stroke="#dce4eb"/>
+  <text x="1192" y="1190" class="subh">已实现范围</text>
+  <text x="1192" y="1234" class="body">静态轴对齐盒 · 漫反射 · 常量颜色面发光</text>
+  <text x="1192" y="1272" class="body">尚无任意网格、动态几何 GI、天空光、镜面 GI</text>
+  <text x="1192" y="1310" class="body">部分遮挡与后续反弹仍受有限采样约束。</text>
+  <text x="1192" y="1348" class="small">旧 RC 为隔离副本；原生 GI 仅作参考。</text>
+
+  <path d="M56 1380H1704" stroke="#d8e1e9"/>
+  <text x="56" y="1413" class="small">ρ = 线性漫反射率　 D = 点光直接项（按项目光源能量约定）　 Le = 发光出射辐射　 B = 间接入射 E / π</text>
+  <text x="56" y="1439" class="code">Source: surface_layout.gd · surface_cache.gd · cache_*.glsl · surface.gdshader · docs/TOPDOWN_IMPLEMENTATION.md</text>
+  <text x="1704" y="1439" class="code" text-anchor="end">CURRENT / 2026.09.24</text>
+</svg>

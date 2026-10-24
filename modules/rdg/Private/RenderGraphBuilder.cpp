@@ -117,6 +117,12 @@ TAutoConsoleVariable<int32> CVarRDGEvents(
 		"Emits RenderingDevice debug labels for every pass (visible in RenderDoc / profilers).",
 		ECVF_RenderThreadSafe);
 
+TAutoConsoleVariable<int32> CVarRDGGPUStats(
+		"r.RDG.GPUStats", 1,
+		"Times the passes of each RDG_GPU_STAT_SCOPE with RenderingDevice timestamps (\"<Stat> begin\" / \"<Stat> end\"). "
+		"Passes on the async compute queue and in parallel pass sets are not timed.",
+		ECVF_RenderThreadSafe);
+
 namespace {
 String GLastDumpPath;
 
@@ -1172,6 +1178,7 @@ FRDGPassRef FRDGBuilder::AddPassInternal(FRDGPass *Pass) {
 	FlushAccessModeQueue();
 	Pass->Handle = FRDGPassHandle(Passes.size());
 	Pass->Scope = CurrentScope;
+	Pass->GPUStat = CurrentGPUStat;
 	Pass->Pipeline = EnumHasAnyFlags(Pass->Flags, ERDGPassFlags::AsyncCompute) ? ERHIPipeline::AsyncCompute : ERHIPipeline::Graphics;
 	if (Pass->IsAsyncCompute()) AsyncComputePassCount++;
 	Passes.push_back(Pass);
@@ -1632,6 +1639,16 @@ void FRDGBuilder::ExecutePassEpilogue(FRDGPass *Pass) {
 	}
 }
 
+void FRDGBuilder::SetActiveGPUStat(const FRDGGPUStat *Stat) {
+	if (Stat == ActiveGPUStat) return;
+	// Timestamps are captured outside RD draw / compute lists: inside a merged render pass the switch waits for its end.
+	if (RHICmdList.IsInsideRenderPass()) return;
+	RHICmdList.FlushComputeList();
+	if (ActiveGPUStat) Device->capture_timestamp(ActiveGPUStat->EndName);
+	if (Stat) Device->capture_timestamp(Stat->BeginName);
+	ActiveGPUStat = Stat;
+}
+
 void FRDGBuilder::ExecutePass(FRDGPass *Pass) {
 	ExecutePassPrologue(Pass);
 	bInPassExecution = true;
@@ -1796,6 +1813,7 @@ void FRDGBuilder::Execute() {
 		// Async compute passes forking from the prologue wait for the work recorded before the graph.
 		if (bPrologueFork) PrologueForkFence = Device->async_compute_fork_signal();
 		bEmitPassEvents = CVarRDGEvents.GetValueOnRenderThread() != 0;
+		const bool bGPUStats = CVarRDGGPUStats.GetValueOnRenderThread() != 0;
 		for (uint32 PassIndex = 0; PassIndex < Passes.size();) {
 			FRDGPass *Pass = Passes[PassIndex];
 			if (Pass->bCulled) {
@@ -1803,6 +1821,7 @@ void FRDGBuilder::Execute() {
 				continue;
 			}
 			if (Pass->ParallelPassSetIndex < 0) {
+				if (bGPUStats && !Pass->IsAsyncCompute()) SetActiveGPUStat(Pass->GPUStat);
 				ExecutePass(Pass);
 				PassIndex++;
 				continue;
@@ -1817,6 +1836,7 @@ void FRDGBuilder::Execute() {
 				LastSetIndex++;
 				NextPassIndex = ParallelPassGroups[ParallelPassSets[LastSetIndex].LastGroupIndex].LastPassIndex + 1;
 			}
+			if (bGPUStats) SetActiveGPUStat(nullptr);
 			bInPassExecution = true;
 			ExecuteParallelPassSets(FirstSetIndex, LastSetIndex);
 			bInPassExecution = false;
@@ -1829,6 +1849,7 @@ void FRDGBuilder::Execute() {
 	}
 	RHICmdList.FlushComputeList();
 	if (RHICmdList.IsInsideRenderPass()) RHICmdList.EndRenderPass();
+	SetActiveGPUStat(nullptr);
 
 	FinalizeExtraction();
 

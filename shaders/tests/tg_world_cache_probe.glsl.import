@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://d0mov2fr50mnx"
+path="res://.godot/imported/tg_world_cache_probe.glsl-23ae1730d040002b743a8030d0975a41.res"
+
+[deps]
+
+source_file="res://shaders/tests/tg_world_cache_probe.glsl"
+dest_files=["res://.godot/imported/tg_world_cache_probe.glsl-23ae1730d040002b743a8030d0975a41.res"]
+
+[params]
+

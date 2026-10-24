@@ -1,0 +1,12 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+env_tg_gi = env_modules.Clone()
+
+# The rdg module's public headers, included UE-style (`#include "RenderGraph.h"`).
+env_tg_gi.Prepend(CPPPATH=[Dir("../rdg/Public").abspath, Dir(".").abspath])
+
+env_tg_gi.add_source_files(env.modules_sources, "*.cpp")

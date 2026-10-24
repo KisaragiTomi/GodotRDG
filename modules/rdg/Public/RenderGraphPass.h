@@ -38,6 +38,7 @@ public:
 	const FShaderParametersMetadata *GetParametersMetadata() const { return ParameterMetadata; }
 	const void *GetParameters() const { return ParameterStruct; }
 	const FRDGEventScope *GetScope() const { return Scope; }
+	const FRDGGPUStat *GetGPUStat() const { return GPUStat; }
 	const LocalVector<FRDGPass *> &GetProducers() const { return Producers; }
 	/** UE's pass task mode: whether the pass was recorded by a parallel task (r.RDG.ParallelExecute) and in which set. */
 	bool IsParallelExecute() const { return ParallelPassSetIndex >= 0; }
@@ -76,6 +77,7 @@ protected:
 	ERHIPipeline Pipeline = ERHIPipeline::Graphics;
 	FRDGPassHandle Handle;
 	const FRDGEventScope *Scope = nullptr;
+	const FRDGGPUStat *GPUStat = nullptr;
 
 	LocalVector<FTextureState> TextureStates;
 	LocalVector<FBufferState> BufferStates;

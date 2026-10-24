@@ -1,0 +1,43 @@
+// A bounded, screen-fed cache of diffuse indirect irradiance / PI.
+// Exact keys, plane distance and normal checks reject hash collisions/thin walls.
+const uint WORLD_CACHE_SIZE=65536u;
+const float WORLD_CACHE_CELL=0.25;
+const uint WORLD_CACHE_TTL=120u;
+// WORLD_CACHE_KEYS_ONLY: only the key / hash functions, without the WorldCache buffer.
+#ifndef WORLD_CACHE_KEYS_ONLY
+struct WorldCacheEntry {
+    ivec4 cell;
+    vec4 position_tick; // xyz: world position; w: uint tick stored as raw bits.
+    vec4 normal_epoch;  // xyz: geometric normal; w: uint lighting epoch bits.
+    vec4 irradiance;
+};
+layout(set=0,binding=35,std430) buffer WorldCache { WorldCacheEntry world_cache[]; };
+#endif
+
+ivec4 world_cache_key(vec3 position,vec3 normal) {
+    vec3 a=abs(normal);
+    int axis=a.x>max(a.y,a.z) ? 0 : (a.y>a.z ? 1 : 2);
+    return ivec4(ivec3(floor(position/WORLD_CACHE_CELL)),axis*2+(normal[axis]<0.0 ? 1 : 0));
+}
+uint world_cache_hash(ivec4 key) {
+    uvec4 k=uvec4(key);
+    uint h=k.x*73856093u ^ k.y*19349663u ^ k.z*83492791u ^ k.w*2654435761u;
+    h^=h>>16u;
+    return h&(WORLD_CACHE_SIZE-1u);
+}
+#ifndef WORLD_CACHE_KEYS_ONLY
+bool world_cache_lookup(vec3 position,vec3 normal,uint epoch,uint tick,out vec3 irradiance) {
+    irradiance=vec3(0.0);
+    ivec4 key=world_cache_key(position,normal);
+    WorldCacheEntry entry=world_cache[world_cache_hash(key)];
+    if (any(notEqual(key,entry.cell)) || floatBitsToUint(entry.normal_epoch.w)!=epoch) return false;
+    uint age=tick-floatBitsToUint(entry.position_tick.w);
+    if (age>=WORLD_CACHE_TTL || dot(normal,entry.normal_epoch.xyz)<0.95) return false;
+    vec3 delta=position-entry.position_tick.xyz;
+    float plane=max(abs(dot(delta,normal)),abs(dot(delta,entry.normal_epoch.xyz)));
+    if (plane>0.01 || dot(delta,delta)>0.16) return false;
+    float fade=1.0-smoothstep(90.0,float(WORLD_CACHE_TTL),float(age));
+    irradiance=entry.irradiance.rgb*fade;
+    return true;
+}
+#endif

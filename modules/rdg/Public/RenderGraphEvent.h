@@ -58,14 +58,39 @@ private:
 #define RDG_EVENT_SCOPE_STAT(GraphBuilder, Stat, Format, ...) RDG_EVENT_SCOPE(GraphBuilder, Format, ##__VA_ARGS__)
 #define RDG_EVENT_SCOPE_FINAL(GraphBuilder, Format, ...) RDG_EVENT_SCOPE(GraphBuilder, Format, ##__VA_ARGS__)
 
-// Stat / profiling scopes compile to nothing (Godot's profiler sees the RD labels instead).
-#define RDG_GPU_STAT_SCOPE(GraphBuilder, StatName)
+/** GPU stat (UE's DECLARE_GPU_STAT): the passes added inside its RDG_GPU_STAT_SCOPE are timed with RenderingDevice
+ *  timestamps named "<Name> begin" / "<Name> end" (RenderingDevice::get_captured_timestamp_*, one frame later). */
+class FRDGGPUStat {
+public:
+	explicit FRDGGPUStat(const char *InName) :
+			Name(InName), BeginName(String::utf8(InName) + " begin"), EndName(String::utf8(InName) + " end") {}
+
+	const char *const Name;
+	const String BeginName;
+	const String EndName;
+};
+
+class FRDGGPUStatScopeGuard {
+public:
+	FRDGGPUStatScopeGuard(FRDGBuilder &InGraphBuilder, const FRDGGPUStat &Stat);
+	~FRDGGPUStatScopeGuard();
+	FRDGGPUStatScopeGuard(const FRDGGPUStatScopeGuard &) = delete;
+
+private:
+	FRDGBuilder &GraphBuilder;
+	const FRDGGPUStat *const ParentStat;
+};
+
+#define DECLARE_GPU_STAT_NAMED(StatName, NameString) static FRDGGPUStat GPUStat_##StatName(NameString);
+#define DECLARE_GPU_STAT(StatName) DECLARE_GPU_STAT_NAMED(StatName, #StatName)
+#define DEFINE_GPU_STAT(StatName)
+#define RDG_GPU_STAT_SCOPE(GraphBuilder, StatName) \
+	FRDGGPUStatScopeGuard RDG_EVENT_SCOPE_CONCAT(PREPROCESSOR_RDGGPUStatScope_, __LINE__)((GraphBuilder), GPUStat_##StatName)
+
+// CSV / mask / task scopes compile to nothing.
 #define RDG_CSV_STAT_EXCLUSIVE_SCOPE(GraphBuilder, StatName)
 #define RDG_GPU_MASK_SCOPE(GraphBuilder, GPUMask)
 #define RDG_WAIT_FOR_TASKS_CONDITIONAL(GraphBuilder, bCondition)
-#define DECLARE_GPU_STAT(StatName)
-#define DECLARE_GPU_STAT_NAMED(StatName, NameString)
-#define DEFINE_GPU_STAT(StatName)
 #define SCOPED_NAMED_EVENT(Name, Color)
 #define SCOPE_CYCLE_COUNTER(Stat)
 #define TRACE_CPUPROFILER_EVENT_SCOPE(Name)

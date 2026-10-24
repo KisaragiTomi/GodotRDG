@@ -1,0 +1,4 @@
+# Versions used for geometry preparation and image comparisons (Python 3.11).
+numpy==2.4.6
+scipy==1.17.1
+Pillow==12.3.0

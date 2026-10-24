@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cwbufoayjo5es"]
+
+[ext_resource type="Script" uid="uid://cb075detf4pd1" path="res://scripts/lab.gd" id="1"]
+
+[node name="SparseGILab" type="Node3D" unique_id=446401362]
+script = ExtResource("1")
