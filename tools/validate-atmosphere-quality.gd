@@ -52,7 +52,7 @@ func _run() -> void:
 	RenderingServer.environment_set_volumetric_fog_volume_size(512, 384)
 	fog.invalidate_history()
 	await _shot("reference", 160)
-	RenderingServer.environment_set_volumetric_fog_volume_size(256, 192)
+	RenderingServer.environment_set_volumetric_fog_volume_size(ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_size"), ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_depth"))
 	fog.invalidate_history()
 	await _wait_frames(60)
 	var motion_reprojected := true

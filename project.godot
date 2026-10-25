@@ -35,5 +35,6 @@ enabled=PackedStringArray("res://addons/rdg_engine_check/plugin.cfg")
 
 [rendering]
 
-environment/volumetric_fog/volume_size=256
+environment/volumetric_fog/volume_size=192
 environment/volumetric_fog/volume_depth=192
+environment/volumetric_fog/use_filter=0

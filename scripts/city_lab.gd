@@ -8,7 +8,7 @@ const FOG_THICKNESS := 0.8
 const FOG_SCALE := 1.4
 const FOG_LENGTH := 480.0
 const EDITOR_FOG_LENGTH := 1800.0
-const BALANCED_FOG_GRID := Vector2i(224, 192)
+const BALANCED_FOG_GRID := Vector2i(168, 192)
 const FOG_RANGE_STEP := 128.0
 
 var camera: Camera3D
@@ -21,11 +21,11 @@ var preset := 0
 var capture_path := ""
 var _initial_sun_rotation: Vector3
 var balanced_fog := true
-var _project_fog_grid := Vector2i(256, 192)
+var _project_fog_grid := Vector2i(192, 192)
 var _city_bounds := AABB(Vector3(-240, -2, -240), Vector3(480, 2, 480))
 
 func _ready() -> void:
-	_project_fog_grid = Vector2i(ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_size", 256), ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_depth", 192))
+	_project_fog_grid = Vector2i(ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_size", 192), ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_depth", 192))
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--city-capture="): capture_path = arg.trim_prefix("--city-capture=")
 		if arg == "--city-full-fog": balanced_fog = false

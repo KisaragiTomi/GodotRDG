@@ -53,7 +53,7 @@ func _run() -> void:
 		fog.environment.fog_enabled = false
 		await _shot(label + "_clear")
 		fog.active = true
-		RenderingServer.environment_set_volumetric_fog_volume_size(256, 192)
+		RenderingServer.environment_set_volumetric_fog_volume_size(scene._project_fog_grid.x, scene._project_fog_grid.y)
 	FileAccess.open(output.path_join("results.json"), FileAccess.WRITE).store_string(JSON.stringify(result, "\t"))
 	print("CITY_COVERAGE: ", JSON.stringify(result))
 	quit()
