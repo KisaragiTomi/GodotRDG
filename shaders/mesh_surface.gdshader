@@ -39,9 +39,11 @@ vec3 tg_irradiance(vec2 screen_uv, vec3 world_position, vec3 world_normal, vec3 
             vec3 guide_normal = tg_stable_denoise ? surface_normal : world_normal;
             float plane = max(abs(dot(delta, guide_normal)), abs(dot(delta, normal)));
             vec2 offset = vec2(float(i),float(j)) - fraction;
-            float weight = exp(-dot(offset, offset));
-            weight *= exp(-plane / (0.015 + 0.002 * guide.w));
-            weight *= pow(max(dot(normal, guide_normal), 0.0), 8.0);
+            float spatial = exp(-dot(offset, offset));
+            float weight = spatial * exp(-plane / (0.015 + 0.002 * guide.w)) * pow(max(dot(normal, guide_normal), 0.0), 8.0);
+            // Thin geometry smaller than a guide texel has no matching tap; a faint position-only weight gives it the
+            // neighbourhood's SH (evaluated with its own normal below) instead of flickering between zero and one tap.
+            weight += 0.001 * spatial;
             if (guide.w <= 0.0) weight = 0.0;
             r += texelFetch(tg_sh, tap, 0) * weight;
             g += texelFetch(tg_sh, tap + ivec2(size.x,0), 0) * weight;

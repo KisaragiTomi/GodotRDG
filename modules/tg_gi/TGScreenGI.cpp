@@ -698,6 +698,9 @@ void TGScreenGI::_render_gi(int p_effect_callback_type, const RenderData *p_rend
 	const FRDGTextureDesc PositionDesc = Desc2D(half_size, PF_A32B32G32R32F);
 	const FRDGTextureDesc NormalDesc = Desc2D(half_size, PF_FloatRGBA);
 	const FRDGTextureDesc SHDesc = Desc2D(Vector2i(half_size.x * 3, half_size.y), PF_FloatRGBA);
+	// The accumulated SH is 32-bit: half-float stores round toward zero on common GPUs, which lost ~0.025% per frame
+	// and darkened a converged 48-frame history by ~1.2%. The per-frame filter levels stay 16-bit.
+	const FRDGTextureDesc SHHistoryDesc = Desc2D(Vector2i(half_size.x * 3, half_size.y), PF_A32B32G32R32F);
 	const FRDGTextureDesc AgeDesc = Desc2D(half_size, PF_R16F);
 	const FRDGTextureDesc MomentsDesc = Desc2D(half_size, PF_G32R32F);
 	const FRDGTextureDesc VarianceDesc = Desc2D(half_size, PF_R32_FLOAT);
@@ -705,7 +708,7 @@ void TGScreenGI::_render_gi(int p_effect_callback_type, const RenderData *p_rend
 	const FRDGTextureDesc DepthHistoryDesc = Desc2D(size, PF_R32_FLOAT);
 	FRDGTextureRef PrevPosition = RegisterHistoryOrBlack(GraphBuilder, history_position, PositionDesc, "TG.History.Position");
 	FRDGTextureRef PrevNormal = RegisterHistoryOrBlack(GraphBuilder, history_normal, NormalDesc, "TG.History.Normal");
-	FRDGTextureRef PrevSH = RegisterHistoryOrBlack(GraphBuilder, history_sh, SHDesc, "TG.History.SH");
+	FRDGTextureRef PrevSH = RegisterHistoryOrBlack(GraphBuilder, history_sh, SHHistoryDesc, "TG.History.SH");
 	FRDGTextureRef PrevAge = RegisterHistoryOrBlack(GraphBuilder, history_age, AgeDesc, "TG.History.Age");
 	FRDGTextureRef PrevMoments = RegisterHistoryOrBlack(GraphBuilder, history_moments, MomentsDesc, "TG.History.Moments");
 	FRDGTextureRef PrevColor = taa_history_active ? RegisterExternalTexture(GraphBuilder, Buffers->get_texture_slice(SNAME("taa"), SNAME("history"), 0, 0, 1, 1), "TAAHistory") : RegisterHistoryOrBlack(GraphBuilder, history_color, ColorHistoryDesc, "TG.History.Color");
@@ -714,7 +717,7 @@ void TGScreenGI::_render_gi(int p_effect_callback_type, const RenderData *p_rend
 	// This frame: the guides / SH / age / moments become next frame's history; everything else is transient.
 	FRDGTextureRef GuidePosition = GraphBuilder.CreateTexture(PositionDesc, "TG.GuidePosition");
 	FRDGTextureRef GuideNormal = GraphBuilder.CreateTexture(NormalDesc, "TG.GuideNormal");
-	FRDGTextureRef SH = GraphBuilder.CreateTexture(SHDesc, "TG.SH");
+	FRDGTextureRef SH = GraphBuilder.CreateTexture(SHHistoryDesc, "TG.SH");
 	FRDGTextureRef Age = GraphBuilder.CreateTexture(AgeDesc, "TG.Age");
 	FRDGTextureRef Moments = GraphBuilder.CreateTexture(MomentsDesc, "TG.Moments");
 	FRDGTextureRef Candidate = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2DArray(Trace, PF_FloatRGBA, FClearValueBinding::Black, TexCreate_ShaderResource | TexCreate_UAV, RayLayers), "TG.CandidateColor");

@@ -116,7 +116,8 @@ layout(set = 0, binding = 21) uniform sampler2DArray MetalTexture;
 layout(r16f, set = 0, binding = 22) uniform image2D AgeOutput;
 #endif
 #if defined(TGReconstructCS) || defined(TGBasicFilterCS)
-layout(rgba16f, set = 0, binding = 23) uniform image2D SHOutput;
+// 32-bit: it is the accumulated history (half-float stores round toward zero every frame).
+layout(rgba32f, set = 0, binding = 23) uniform image2D SHOutput;
 #endif
 #if defined(TGReconstructCS) || (defined(TGFilterCS) && FILTER_PASS == 3)
 layout(rg32f, set = 0, binding = 24) uniform image2D MomentsOutput;
@@ -124,7 +125,11 @@ layout(rg32f, set = 0, binding = 24) uniform image2D MomentsOutput;
 
 // Post denoise: FilterInput / VarianceInput -> FilterOutput / VarianceOutput, bound per level by the C++ side.
 #if defined(TGFilterCS)
+#if FILTER_PASS == 3
+layout(rgba32f, set = 0, binding = 25) uniform image2D FilterInput;
+#else
 layout(rgba16f, set = 0, binding = 25) uniform image2D FilterInput;
+#endif
 layout(rgba16f, set = 0, binding = 26) uniform image2D FilterOutput;
 #if FILTER_PASS != 3
 layout(r32f, set = 0, binding = 27) uniform image2D VarianceInput;
@@ -461,7 +466,9 @@ bool screen_hit(vec3 origin,vec3 direction,out vec3 radiance) {
             ivec2 pixel=clamp(ivec2(uv*vec2(p.Width,p.Height)),ivec2(0),ivec2(p.Width-1u,p.Height-1u));
             if (dot(normal_at(pixel),direction)>-0.02) return false;
             vec2 old_uv=project(surface,TGView.PrevViewProj);
-            if (!on_screen(old_uv)) return false;
+            // Same jitter margin as the history reprojection; the clamping samplers read the border texel.
+            vec2 margin=1.5/vec2(p.Width,p.Height);
+            if (any(lessThan(old_uv,-margin)) || any(greaterThanEqual(old_uv,1.0+margin))) return false;
             float old_depth=textureLod(PrevDepthTexture,old_uv,0.0).r;
             if (old_depth<=0.000001) return false;
             vec3 old_surface=unproject(old_uv,old_depth,TGView.PrevInvViewProj);
@@ -559,47 +566,60 @@ void TGProjectCS() {
 #endif
 
 #if defined(TGReconstructCS)
+// Adds the candidates of the trace cell at offset (in cells) from the receiver to the SH sums; strict_sum counts the
+// guide-matched weight alone, without the faint floor.
+void gather_cell(ivec2 xy,ivec2 offset,ivec2 half_size,ivec2 trace_size,vec4 center,vec4 n,inout vec4 red,inout vec4 green,inout vec4 blue,inout float weight_sum,inout float strict_sum) {
+    // Keep the same spatial footprint as sparse mode for the A/B.
+    // The rays, rather than the blur radius, supply the improvement.
+    ivec2 sample_xy=clamp(xy/int(p.TraceStride)+offset*(p.TraceStride==2u ? 1 : 2),ivec2(0),trace_size-1);
+    ivec2 guide_xy=min(sample_xy*int(p.TraceStride),half_size-1);
+    vec4 position=imageLoad(GuidePosition,guide_xy),normal=imageLoad(GuideNormal,guide_xy);
+    float strict=guide_weight(center,n,position,normal);
+    // Plus a faint floor: a thin receiver no ray origin matches takes the neighbourhood instead of nothing.
+    float weight=strict+(position.w>0.0 ? 0.001 : 0.0);
+#if !TG_SPARSE
+    if (position.w<=0.0) weight=0.0;
+    red+=imageLoad(CandidateSH,sample_xy)*weight;
+    green+=imageLoad(CandidateSH,sample_xy+ivec2(trace_size.x,0))*weight;
+    blue+=imageLoad(CandidateSH,sample_xy+ivec2(trace_size.x*2,0))*weight;
+    weight_sum+=weight;
+    strict_sum+=strict;
+#else
+    uint rays=uint(imageLoad(CandidateDirection,ivec3(sample_xy,0)).w);
+    for (uint ray=0u;ray<rays;ray++) {
+        vec4 candidate=imageLoad(CandidateColor,ivec3(sample_xy,ray));
+        vec3 direction=imageLoad(CandidateDirection,ivec3(sample_xy,ray)).xyz;
+        float ray_weight=weight*candidate.a;
+        if (dot(n.xyz,direction)<=0.0) ray_weight=0.0;
+        // Project each ray before averaging; averaging radiance
+        // and direction separately would corrupt directional SH.
+        vec4 basis=vec4(0.282094792,0.488602512*direction)*(2.0*PI);
+        red+=basis*candidate.r*ray_weight; green+=basis*candidate.g*ray_weight; blue+=basis*candidate.b*ray_weight; weight_sum+=ray_weight;
+        if (ray_weight>0.0) strict_sum+=strict*candidate.a;
+    }
+#endif
+}
 void TGReconstructCS() {
     ivec2 xy=ivec2(gl_GlobalInvocationID.xy),half_size=ivec2(p.HalfWidth,p.HalfHeight);
     if (any(greaterThanEqual(xy,half_size))) return;
     vec4 center=imageLoad(GuidePosition,xy),n=imageLoad(GuideNormal,xy);
-    vec4 red=vec4(0.0),green=vec4(0.0),blue=vec4(0.0); float weight_sum=0.0;
+    vec4 red=vec4(0.0),green=vec4(0.0),blue=vec4(0.0); float weight_sum=0.0,strict_sum=0.0;
     ivec2 trace_size=(half_size+int(p.TraceStride)-1)/int(p.TraceStride);
     if (center.w>0.0) {
-        for (int j=-1;j<=1;j++) for (int i=-1;i<=1;i++) {
-            // Keep the same spatial footprint as sparse mode for the A/B.
-            // The rays, rather than the blur radius, supply the improvement.
-            ivec2 sample_xy=clamp(xy/int(p.TraceStride)+ivec2(i,j)*(p.TraceStride==2u ? 1 : 2),ivec2(0),trace_size-1);
-            ivec2 guide_xy=min(sample_xy*int(p.TraceStride),half_size-1);
-            vec4 position=imageLoad(GuidePosition,guide_xy),normal=imageLoad(GuideNormal,guide_xy);
-            float weight=guide_weight(center,n,position,normal);
-#if !TG_SPARSE
-            if (position.w<=0.0) weight=0.0;
-            red+=imageLoad(CandidateSH,sample_xy)*weight;
-            green+=imageLoad(CandidateSH,sample_xy+ivec2(trace_size.x,0))*weight;
-            blue+=imageLoad(CandidateSH,sample_xy+ivec2(trace_size.x*2,0))*weight;
-            weight_sum+=weight;
-#else
-            uint rays=uint(imageLoad(CandidateDirection,ivec3(sample_xy,0)).w);
-            for (uint ray=0u;ray<rays;ray++) {
-                vec4 candidate=imageLoad(CandidateColor,ivec3(sample_xy,ray));
-                vec3 direction=imageLoad(CandidateDirection,ivec3(sample_xy,ray)).xyz;
-                float ray_weight=weight*candidate.a;
-                if (dot(n.xyz,direction)<=0.0) ray_weight=0.0;
-                // Project each ray before averaging; averaging radiance
-                // and direction separately would corrupt directional SH.
-                vec4 basis=vec4(0.282094792,0.488602512*direction)*(2.0*PI);
-                red+=basis*candidate.r*ray_weight; green+=basis*candidate.g*ray_weight; blue+=basis*candidate.b*ray_weight; weight_sum+=ray_weight;
-            }
-#endif
-        }
+        for (int j=-1;j<=1;j++) for (int i=-1;i<=1;i++) gather_cell(xy,ivec2(i,j),half_size,trace_size,center,n,red,green,blue,weight_sum,strict_sum);
+        // Silhouettes and thin geometry match only a few of the nine nearest ray origins, so their estimate is noisy
+        // every frame: widen to the next ring of cells for them. The guide weights keep it on the same surface.
+        if (strict_sum<3.0) for (int j=-2;j<=2;j++) for (int i=-2;i<=2;i++) if (max(abs(i),abs(j))==2) gather_cell(xy,ivec2(i,j),half_size,trace_size,center,n,red,green,blue,weight_sum,strict_sum);
     }
     if (weight_sum>0.00001) { red/=weight_sum; green/=weight_sum; blue/=weight_sum; }
     float luma=sh_luminance(red,green,blue);
     vec2 moments=vec2(luma,luma*luma),history_moments=vec2(0.0);
     float age=1.0;
     vec2 old_uv=project(center.xyz,TGView.PrevViewProj);
-    bool valid=p.HistoryValid!=0u && center.w>0.0 && on_screen(old_uv);
+    // TAA jitter moves the outermost guides up to a pixel across the screen edge between frames; their history
+    // stays valid within that margin (the taps below clamp to the border texels).
+    vec2 margin=1.5/vec2(p.Width,p.Height);
+    bool valid=p.HistoryValid!=0u && center.w>0.0 && all(greaterThanEqual(old_uv,-margin)) && all(lessThan(old_uv,1.0+margin));
     ivec2 old_xy=clamp(ivec2(old_uv*vec2(half_size)),ivec2(0),half_size-1);
     if (valid && p.StableDenoise==0u) {
         vec4 old_p=texelFetch(PrevPositionTexture,old_xy,0),old_n=texelFetch(PrevNormalTexture,old_xy,0);
@@ -612,8 +632,7 @@ void TGReconstructCS() {
         vec2 coordinate=old_uv*vec2(p.Width,p.Height)*0.5-0.75;
         ivec2 base=ivec2(floor(coordinate)); vec2 fraction=fract(coordinate);
         for (int j=0;j<2;j++) for (int i=0;i<2;i++) {
-            ivec2 tap=base+ivec2(i,j);
-            if (any(lessThan(tap,ivec2(0))) || any(greaterThanEqual(tap,half_size))) continue;
+            ivec2 tap=clamp(base+ivec2(i,j),ivec2(0),half_size-1);
             vec4 old_p=texelFetch(PrevPositionTexture,tap,0),old_n=texelFetch(PrevNormalTexture,tap,0);
             vec3 delta=old_p.xyz-center.xyz;
             float plane=max(abs(dot(delta,n.xyz)),abs(dot(delta,old_n.xyz)));
@@ -625,6 +644,28 @@ void TGReconstructCS() {
             history_age+=texelFetch(PrevAgeTexture,tap,0).r*weight;
             history_moments+=texelFetch(PrevMomentsTexture,tap,0).rg*weight;
             history_weight+=weight;
+        }
+        if (history_weight<=0.01) {
+            // Jitter moves thin geometry by up to half a guide texel per frame, so the bilinear taps can all miss the
+            // surface. Keep its history from the best matching texel nearby instead of restarting from one sample.
+            ivec2 nearest=ivec2(floor(coordinate+0.5)),chosen=ivec2(-1);
+            float best=1e9;
+            for (int j=-1;j<=1;j++) for (int i=-1;i<=1;i++) {
+                ivec2 tap=clamp(nearest+ivec2(i,j),ivec2(0),half_size-1);
+                vec4 old_p=texelFetch(PrevPositionTexture,tap,0),old_n=texelFetch(PrevNormalTexture,tap,0);
+                vec3 delta=old_p.xyz-center.xyz;
+                float plane=max(abs(dot(delta,n.xyz)),abs(dot(delta,old_n.xyz)));
+                if (old_p.w<=0.0 || plane>0.015+center.w*0.0015 || length(delta)>0.04+center.w*0.035 || dot(old_n.xyz,n.xyz)<0.90) continue;
+                if (plane<best) { best=plane; chosen=tap; }
+            }
+            if (chosen.x>=0) {
+                history_r=texelFetch(PrevSHTexture,chosen,0);
+                history_g=texelFetch(PrevSHTexture,chosen+ivec2(p.HalfWidth,0),0);
+                history_b=texelFetch(PrevSHTexture,chosen+ivec2(p.HalfWidth*2u,0),0);
+                history_age=texelFetch(PrevAgeTexture,chosen,0).r;
+                history_moments=texelFetch(PrevMomentsTexture,chosen,0).rg;
+                history_weight=1.0;
+            }
         }
         valid=history_weight>0.01;
     }
